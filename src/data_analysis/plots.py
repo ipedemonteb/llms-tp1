@@ -331,36 +331,44 @@ def plot_temporal_trends(df: pd.DataFrame, output_dir: Path) -> Path:
 
 
 def plot_correlation_matrix(df: pd.DataFrame, output_dir: Path) -> Path:
-    """Grafica la matriz de correlación de variables numéricas y targets con matplotlib."""
+    """Grafica una matriz de correlación curada y limpia, sin filtros ni dimensiones redundantes."""
     setup_matplotlib_style()
     output_dir.mkdir(parents=True, exist_ok=True)
     out_file = output_dir / "09_correlation_matrix.png"
 
-    num_cols = [
-        'cart', 'bought', 'price', 'filter_price_min', 'filter_price_max',
-        'net_weight_oz', 'nutrition_score', 'length_in', 'width_in', 'height_in',
-        'volume_cu_in', 'num_ingredients', 'num_allergens', 'price_rank_in_query'
-    ]
-    available_cols = [c for c in num_cols if c in df.columns]
-    corr_matrix = df[available_cols].corr()
+    # Selección de variables intrínsecas del producto y variables de negocio
+    feature_mapping = {
+        'bought': 'Bought (Target)',
+        'cart': 'Cart (Funnel)',
+        'price': 'Price ($)',
+        'nutrition_score': 'Nutrition Score',
+        'volume_cu_in': 'Volume (in³)',
+        'num_ingredients': 'Num Ingredients',
+        'num_allergens': 'Num Allergens'
+    }
+    
+    cols = [c for c in feature_mapping.keys() if c in df.columns]
+    labels = [feature_mapping[c] for c in cols]
+    
+    corr_matrix = df[cols].corr()
 
-    fig, ax = plt.subplots(figsize=(11, 9))
+    fig, ax = plt.subplots(figsize=(9, 8))
     cax = ax.matshow(corr_matrix, cmap='coolwarm', vmin=-1, vmax=1)
     fig.colorbar(cax, fraction=0.046, pad=0.04)
 
-    ticks = np.arange(len(available_cols))
+    ticks = np.arange(len(cols))
     ax.set_xticks(ticks)
     ax.set_yticks(ticks)
-    ax.set_xticklabels(available_cols, rotation=45, ha='left', fontsize=9)
-    ax.set_yticklabels(available_cols, fontsize=9)
+    ax.set_xticklabels(labels, rotation=35, ha='left', fontsize=10)
+    ax.set_yticklabels(labels, fontsize=10)
 
-    for i in range(len(available_cols)):
-        for j in range(len(available_cols)):
+    for i in range(len(cols)):
+        for j in range(len(cols)):
             val = corr_matrix.iloc[i, j]
-            color = 'white' if abs(val) > 0.5 else 'black'
-            ax.text(j, i, f'{val:.2f}', ha='center', va='center', color=color, fontsize=8)
+            color = 'white' if abs(val) > 0.45 else 'black'
+            ax.text(j, i, f'{val:.2f}', ha='center', va='center', color=color, fontsize=10, fontweight='bold')
 
-    ax.set_title('Matriz de Correlaciones Lineales (Pearson)', pad=30, fontsize=13, fontweight='bold')
+    ax.set_title('Matriz de Correlaciones Lineales (Variables Curadas)', pad=35, fontsize=13, fontweight='bold')
     plt.tight_layout()
     plt.savefig(out_file, dpi=300)
     plt.close()
