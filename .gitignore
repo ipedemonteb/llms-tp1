@@ -108,7 +108,8 @@ processed_data/
 *.csv
 !/resources/supermarket_products.csv
 
-# Keep results structure
+# Ignore all generated results, figures and metrics
+results/*
 !results/.gitkeep
 !src/.gitkeep
 
@@ -154,3 +155,4 @@ htmlcov/
 .env
 .env.*
 .secrets
+
