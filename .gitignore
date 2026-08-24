@@ -1,0 +1,145 @@
+# ==============================================================================
+# OS SPECIFIC FILES
+# ==============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon\r
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+*~
+
+# ==============================================================================
+# PYTHON RUNTIME, BYTECODE & PACKAGING
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==============================================================================
+# UV & VIRTUAL ENVIRONMENTS
+# ==============================================================================
+# uv virtual environment (do NOT ignore uv.lock as it is needed for reproducibility)
+.venv/
+venv/
+ENV/
+env/
+
+# uv local workspace/caching
+.uv/
+
+# ==============================================================================
+# MACHINE LEARNING, DEEP LEARNING & MODEL CHECKPOINTS (Transformers)
+# ==============================================================================
+# Ignore model weight checkpoints to avoid committing large binary files
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.bin
+*.pb
+*.onnx
+*.pkl
+*.joblib
+
+# Standard directories for saving checkpoints / runs
+checkpoints/
+saved_models/
+model_checkpoints/
+models/checkpoints/
+
+# Experiment tracking & logging
+runs/
+mlruns/
+wandb/
+lightning_logs/
+.tensorboard/
+tensorboard/
+.sacred/
+
+# Hugging Face cache (for downloaded pre-trained models/tokenizers)
+.cache/huggingface/
+.cache/hugging_face/
+
+# ==============================================================================
+# DATASETS & EXPERIMENT OUTPUTS
+# ==============================================================================
+# Ignore general data, data-caches, and processed outputs
+data/
+datasets/
+processed_data/
+*.parquet
+*.feather
+*.h5
+
+# Ignore generated CSV files (e.g. predictions, submissions, preprocessed tables),
+# but explicitly keep the assignment's original dataset.
+*.csv
+!/resources/supermarket_products.csv
+
+# ==============================================================================
+# IDEs, EDITORS & NOTEBOOKS
+# ==============================================================================
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# PyCharm / IntelliJ
+.idea/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# ==============================================================================
+# TESTING & COVERAGE
+# ==============================================================================
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# ==============================================================================
+# CONFIGURATION & SECRETS
+# ==============================================================================
+.env
+.env.*
+.secrets
