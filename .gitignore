@@ -18,6 +18,8 @@ Desktop.ini
 # Linux
 .directory
 *~
+*.swp
+*.swo
 
 # ==============================================================================
 # PYTHON RUNTIME, BYTECODE & PACKAGING
@@ -53,14 +55,12 @@ MANIFEST
 venv/
 ENV/
 env/
-
-# uv local workspace/caching
 .uv/
 
 # ==============================================================================
 # MACHINE LEARNING, DEEP LEARNING & MODEL CHECKPOINTS (Transformers)
 # ==============================================================================
-# Ignore model weight checkpoints to avoid committing large binary files
+# Model weights and serialized models
 *.pt
 *.pth
 *.ckpt
@@ -70,8 +70,9 @@ env/
 *.onnx
 *.pkl
 *.joblib
+*.safetensors
 
-# Standard directories for saving checkpoints / runs
+# Checkpoint and artifact directories
 checkpoints/
 saved_models/
 model_checkpoints/
@@ -85,29 +86,34 @@ lightning_logs/
 .tensorboard/
 tensorboard/
 .sacred/
+logs/
+*.log
 
-# Hugging Face cache (for downloaded pre-trained models/tokenizers)
+# Hugging Face and PyTorch cache
+.cache/
 .cache/huggingface/
 .cache/hugging_face/
+.cache/torch/
 
 # ==============================================================================
 # DATASETS & EXPERIMENT OUTPUTS
 # ==============================================================================
-# Ignore general data, data-caches, and processed outputs
 data/
 datasets/
 processed_data/
 *.parquet
 *.feather
-*.h5
 
-# Ignore generated CSV files (e.g. predictions, submissions, preprocessed tables),
-# but explicitly keep the assignment's original dataset.
+# Ignore generated CSV files but explicitly keep the assignment original dataset
 *.csv
 !/resources/supermarket_products.csv
 
+# Keep results structure
+!results/.gitkeep
+!src/.gitkeep
+
 # ==============================================================================
-# IDEs, EDITORS & NOTEBOOKS
+# IDEs, EDITORS, ASSISTANTS & NOTEBOOKS
 # ==============================================================================
 # VS Code
 .vscode/
@@ -123,15 +129,20 @@ processed_data/
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 
-# ==============================================================================
-# TESTING & COVERAGE
-# ==============================================================================
+# AI coding assistant caches
+.gemini/
+.antigravity/
+.claude/
+.cursor/
+
+# Linters & Type Checkers
+.ruff_cache/
+.mypy_cache/
 .pytest_cache/
 .tox/
 .nox/
 .coverage
 .coverage.*
-.cache
 nosetests.xml
 coverage.xml
 htmlcov/
