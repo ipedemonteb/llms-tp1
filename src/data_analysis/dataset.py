@@ -1,4 +1,13 @@
-"""Módulo de carga, limpieza y enriquecimiento de datos para el análisis exploratorio."""
+"""Módulo de carga, limpieza y enriquecimiento de datos para el análisis exploratorio y modelado.
+
+Estructura de Datos:
+El dataset modela eventos de impresión de productos en sesiones de búsqueda (queries).
+- Entidad Query (query_id): Definida por una configuración de parámetros de búsqueda
+  (filter_category, filter_storage_type, filter_price_min, filter_price_max).
+- Entidad Producto (Item): Productos retornados por el motor de búsqueda para dicha query.
+- Interacciones Query x Producto: Posición en filtro de precio, ranking de precio intra-query,
+  y ratios relativos frente a los competidores de la pantalla.
+"""
 
 from pathlib import Path
 from typing import Dict, Any, Tuple
@@ -30,15 +39,25 @@ def load_raw_data(csv_path: str = "resources/supermarket_products.csv") -> pd.Da
 
 
 def clean_and_enrich_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Realiza la limpieza de tipos, parseo de estructuras complejas y generación de features derivadas."""
+    """Realiza la limpieza de tipos, parseo de estructuras complejas y generación de features derivadas.
+    
+    Genera features a nivel Producto, a nivel Query y de interacción Query x Producto.
+    """
     df = df.copy()
 
-    # 1. Parseo temporal
+    # 1. Parseo temporal y variables cíclicas
     df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
     df['hour'] = df['timestamp'].dt.hour
     df['dayofweek'] = df['timestamp'].dt.dayofweek
     df['day_name'] = df['timestamp'].dt.day_name()
+    df['is_weekend'] = df['dayofweek'].isin([5, 6]).astype(int)
     df['year_month'] = df['timestamp'].dt.tz_localize(None).dt.to_period('M').astype(str)
+
+    # Transformaciones cíclicas senoidales/cosenoidales
+    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24.0)
+    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24.0)
+    df['day_sin'] = np.sin(2 * np.pi * df['dayofweek'] / 7.0)
+    df['day_cos'] = np.cos(2 * np.pi * df['dayofweek'] / 7.0)
 
     # 2. Parseo de dimensiones físicas y volumen
     dims = df['dimensions_in'].apply(parse_dimensions)
@@ -49,14 +68,15 @@ def clean_and_enrich_data(df: pd.DataFrame) -> pd.DataFrame:
     df['density_oz_per_cu_in'] = df['net_weight_oz'] / (df['volume_cu_in'] + 1e-6)
 
     # 3. Tratamiento de alérgenos e ingredientes
-    df['has_allergens'] = df['allergens'].notna()
-    df['allergens_filled'] = df['allergens'].fillna('None')
+    df['has_allergens'] = df['allergens'].notna().astype(int)
+    df['allergens_clean'] = df['allergens'].fillna('None')
     df['num_allergens'] = df['allergens'].fillna('').apply(lambda x: len(x.split(',')) if x else 0)
     df['num_ingredients'] = df['ingredients'].fillna('').apply(lambda x: len(x.split(',')) if x else 0)
 
     # 4. Extracción de señales de texto (Social proof y reputación)
-    # Títulos suelen incluir tags en paréntesis como (Best Seller), (Shopper Favorite), etc.
+    # Títulos suelen incluir tags en paréntesis como (Best Seller), (Customer Favorite), etc.
     df['title_tag'] = df['title'].str.extract(r'\((.*?)\)')[0].fillna('No Tag')
+    df['title_clean'] = df['title'].str.replace(r'\s*\(.*?\)', '', regex=True).str.strip()
 
     # Última oración de la descripción (evaluación y feedback)
     def extract_desc_feedback(text: str) -> str:
@@ -73,15 +93,25 @@ def clean_and_enrich_data(df: pd.DataFrame) -> pd.DataFrame:
     df['title_char_count'] = df['title'].fillna('').apply(len)
     df['desc_char_count'] = df['description'].fillna('').apply(len)
 
-    # 5. Matching Query vs Producto
-    df['match_category'] = df['category'] == df['filter_category']
-    df['match_storage'] = df['storage_type'] == df['filter_storage_type']
-    df['price_in_filter_range'] = (df['price'] >= df['filter_price_min']) & (df['price'] <= df['filter_price_max'])
+    # Template textual estructurado para Transformer
+    df['text_full'] = (
+        "Búsqueda: " + df['filter_category'] + " (" + df['filter_storage_type'] + 
+        ", Max: $" + df['filter_price_max'].round(2).astype(str) + ") | " +
+        "Producto: " + df['title_clean'] + " | " +
+        "Badge: " + df['title_tag'] + " | " +
+        "Marca: " + df['brand'] + " | " +
+        "Precio: $" + df['price'].round(2).astype(str) + " | " +
+        "Ingredientes: " + df['ingredients'] + " | " +
+        "Alérgenos: " + df['allergens_clean'] + " | " +
+        "Origen: " + df['country_of_origin'] + " | " +
+        "Descripción: " + df['description']
+    )
 
-    range_span = df['filter_price_max'] - df['filter_price_min']
-    df['price_pos_in_filter'] = (df['price'] - df['filter_price_min']) / (range_span + 1e-6)
+    # 5. Features de Contexto de la Query y Filtros
+    df['filter_price_span'] = df['filter_price_max'] - df['filter_price_min']
+    df['price_pos_in_filter'] = (df['price'] - df['filter_price_min']) / (df['filter_price_span'] + 1e-6)
 
-    # 6. Dinámica relativa dentro de la búsqueda (query_id)
+    # 6. Dinámica relativa dentro de la búsqueda (query_id) - Competencia intra-query
     df['query_size'] = df.groupby('query_id')['price'].transform('count')
     df['price_rank_in_query'] = df.groupby('query_id')['price'].rank(ascending=True)
     query_mean_price = df.groupby('query_id')['price'].transform('mean')
@@ -106,6 +136,9 @@ def get_dataset_summary(df: pd.DataFrame) -> Dict[str, Any]:
     no_cart_to_bought = float(df[df['cart'] == False]['bought'].mean()) if (1 - cart_global) > 0 else 0.0
 
     missing = df.isnull().sum().to_dict()
+
+    # Análisis de configuraciones de query
+    query_configs = df[['filter_category', 'filter_storage_type', 'filter_price_min', 'filter_price_max']].drop_duplicates()
     
     summary = {
         "num_rows": n_rows,
@@ -115,7 +148,10 @@ def get_dataset_summary(df: pd.DataFrame) -> Dict[str, Any]:
         "funnel_cart_to_bought": cart_to_bought,
         "funnel_no_cart_to_bought": no_cart_to_bought,
         "num_queries": int(df['query_id'].nunique()),
+        "unique_query_configurations": len(query_configs),
         "avg_products_per_query": float(df.groupby('query_id')['price'].count().mean()),
+        "min_products_per_query": int(df.groupby('query_id')['price'].count().min()),
+        "max_products_per_query": int(df.groupby('query_id')['price'].count().max()),
         "num_categories": int(df['category'].nunique()),
         "num_brands": int(df['brand'].nunique()),
         "num_countries": int(df['country_of_origin'].nunique()),

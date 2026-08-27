@@ -221,32 +221,36 @@ def plot_numerical_distributions_and_btr(df: pd.DataFrame, output_dir: Path) -> 
 
 
 def plot_query_relative_dynamics(df: pd.DataFrame, output_dir: Path) -> Path:
-    """Grafica la dinámica competitiva dentro de cada query (ranking de precio y posición relativa)."""
+    """Grafica la dinámica del precio respecto al filtro configurado y la distribución de eventos por query_id."""
     setup_matplotlib_style()
     output_dir.mkdir(parents=True, exist_ok=True)
     out_file = output_dir / "06_query_relative_dynamics.png"
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # BTR por Rango de Precio dentro de la Query (int rank)
-    int_ranks = df[df['price_rank_in_query'].isin([1, 2, 3, 4, 5, 6, 7, 8])]
-    rank_stats = int_ranks.groupby('price_rank_in_query')['bought'].agg(['count', 'mean'])
-    bars1 = axes[0].bar(rank_stats.index.astype(int), rank_stats['mean'] * 100, color='#8E44AD', width=0.5, edgecolor='black', alpha=0.85)
-    axes[0].set_title('BTR según Ranking de Precio dentro de la Búsqueda')
-    axes[0].set_xlabel('Ranking de Precio en la Query (1 = más barato)')
+    # 1. BTR según posición del precio dentro del rango de filtros [min, max]
+    pos_bins = pd.cut(df['price_pos_in_filter'], bins=[0, 0.25, 0.5, 0.75, 1.0], labels=['0-25% (Bajo)', '25-50% (Medio-Bajo)', '50-75% (Medio-Alto)', '75-100% (Alto)'], include_lowest=True)
+    pos_stats = df.groupby(pos_bins, observed=False)['bought'].agg(['count', 'mean'])
+    btr_global = df['bought'].mean() * 100
+
+    bars1 = axes[0].bar(pos_stats.index.astype(str), pos_stats['mean'] * 100, color='#8E44AD', width=0.5, edgecolor='black', alpha=0.85)
+    axes[0].axhline(btr_global, color='red', linestyle='--', linewidth=1.5, label=f'BTR Global ({btr_global:.1f}%)')
+    axes[0].set_title('BTR según Posición del Precio en el Rango del Filtro')
+    axes[0].set_xlabel('Posición Relativa en el Filtro [filter_price_min, filter_price_max]')
     axes[0].set_ylabel('Buy Through Rate (%)')
     axes[0].yaxis.set_major_formatter(mtick.PercentFormatter())
-    for bar, count in zip(bars1, rank_stats['count']):
-        axes[0].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 0.4, f'{bar.get_height():.1f}%\n(N={count})', ha='center', va='bottom', fontsize=8.5)
-    axes[0].set_ylim(0, 22)
+    axes[0].legend(loc='lower left')
+    for bar, count in zip(bars1, pos_stats['count']):
+        axes[0].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 0.4, f'{bar.get_height():.1f}%\n(N={count:,})', ha='center', va='bottom', fontsize=8.5)
+    axes[0].set_ylim(0, max(pos_stats['mean'] * 100) + 4)
 
-    # Cantidad de productos por query
+    # 2. Cantidad de eventos registrados por configuración de query
     query_sizes = df.groupby('query_id')['price'].count()
     size_counts = query_sizes.value_counts().sort_index()
     bars2 = axes[1].bar(size_counts.index, size_counts.values, color='#16A085', width=0.5, edgecolor='black', alpha=0.85)
-    axes[1].set_title('Distribución de Cantidad de Productos por Búsqueda (Query Size)')
-    axes[1].set_xlabel('Cantidad de Productos Mostrados')
-    axes[1].set_ylabel('Cantidad de Queries')
+    axes[1].set_title('Distribución de Eventos por Configuración de Query (query_id)')
+    axes[1].set_xlabel('Cantidad de Eventos / Productos por query_id')
+    axes[1].set_ylabel('Cantidad de query_ids')
     for bar in bars2:
         yval = bar.get_height()
         axes[1].text(bar.get_x() + bar.get_width()/2.0, yval + 10, f'{yval:,}', ha='center', va='bottom', fontsize=9, fontweight='bold')

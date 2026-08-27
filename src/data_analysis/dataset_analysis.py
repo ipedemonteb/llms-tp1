@@ -409,11 +409,54 @@ def plot_temporal_coverage(df: pd.DataFrame):
 
 
 # ---------------------------------------------------------------------------
-# 8. Duplicados
+# 8. Análisis de Configuraciones de Búsqueda (query_id)
+# ---------------------------------------------------------------------------
+
+def report_query_structure(df: pd.DataFrame):
+    _section("8. ANÁLISIS DE CONFIGURACIONES DE BÚSQUEDA (query_id)")
+    if 'query_id' not in df.columns:
+        print("\n  ⚠️  No se encontró la columna 'query_id'.")
+        return
+
+    n_queries = df['query_id'].nunique()
+    prods_per_query = df.groupby('query_id')['price'].count()
+    query_configs = df[['filter_category', 'filter_storage_type', 'filter_price_min', 'filter_price_max']].drop_duplicates()
+
+    print(f"\n  Total de configuraciones de búsqueda (query_id): {n_queries:,}")
+    print(f"  Configuraciones únicas de filtros:               {len(query_configs):,}")
+    print(f"  Eventos de impresión por query_id:")
+    print(f"    - Mínimo:  {prods_per_query.min()}")
+    print(f"    - Media:   {prods_per_query.mean():.2f}")
+    print(f"    - Mediana: {prods_per_query.median():.0f}")
+    print(f"    - Máximo:  {prods_per_query.max()}")
+
+
+def plot_query_structure(df: pd.DataFrame):
+    """Visualiza la distribución de eventos registrados por configuración de query."""
+    _setup_style()
+    if 'query_id' not in df.columns:
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    prods_per_query = df.groupby('query_id')['price'].count()
+    size_counts = prods_per_query.value_counts().sort_index()
+    ax.bar(size_counts.index, size_counts.values, color='#16A085', edgecolor='black', alpha=0.85)
+    ax.set_title('Distribución de Eventos por Configuración de Query (query_id)')
+    ax.set_xlabel('Cantidad de Eventos / Productos por query_id')
+    ax.set_ylabel('Cantidad de query_ids')
+    for bar in ax.patches:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2.0, yval + 10, f'{int(yval):,}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+    _save(fig, "08_query_structure.png")
+
+
+# ---------------------------------------------------------------------------
+# 9. Duplicados
 # ---------------------------------------------------------------------------
 
 def report_duplicates(df: pd.DataFrame):
-    _section("8. ANÁLISIS DE DUPLICADOS")
+    _section("9. ANÁLISIS DE DUPLICADOS")
     n_dup_full = df.duplicated().sum()
     print(f"\n  Filas completamente duplicadas: {n_dup_full:,} / {len(df):,}"
           f" ({n_dup_full/len(df)*100:.2f}%)")
@@ -457,10 +500,11 @@ def run_dataset_analysis(csv_path: str = "resources/supermarket_products.csv"):
     report_outliers(df)
     report_text_fields(df)
     report_temporal_coverage(df)
+    report_query_structure(df)
     report_duplicates(df)
 
     # --- Figuras ---
-    _section("9. GENERANDO FIGURAS")
+    _section("10. GENERANDO FIGURAS")
     print(f"\n  Directorio de salida: {FIGURES_DIR.resolve()}\n")
     plot_missing_values(df)
     plot_categorical_distributions(df)
@@ -469,6 +513,7 @@ def run_dataset_analysis(csv_path: str = "resources/supermarket_products.csv"):
     plot_text_analysis(df)
     plot_allergens_ingredients(df)
     plot_temporal_coverage(df)
+    plot_query_structure(df)
 
     print(f"\n{'=' * 72}")
     print("  ✅ ANÁLISIS DESCRIPTIVO COMPLETADO")
@@ -477,3 +522,4 @@ def run_dataset_analysis(csv_path: str = "resources/supermarket_products.csv"):
 
 if __name__ == "__main__":
     run_dataset_analysis()
+
