@@ -9,7 +9,7 @@
 
 | # | Variable Original | Decisión | Detalle / Acción |
 |---|---|---|---|
-| 1 | `title` | **TRANSFORMAR** | Se descarta el string crudo; se reemplaza por `title_clean` y se extrae `title_tag`. |
+| 1 | `title` | **TRANSFORMAR** | Se descarta el string crudo; se reemplaza por `title_clean` (sin badges ni sufijos de medida) y se extrae `title_tag`. |
 | 2 | `description` | **CONSERVAR** | Descripción del producto. |
 | 3 | `price` | **CONSERVAR y DERIVAR** | Precio del producto en USD. Se conserva y se usa para derivar `price_per_oz`. |
 | 4 | `category` | **CONSERVAR** | Categoría del producto. |
@@ -50,7 +50,7 @@
 
 ## 3. Variables Derivadas
 
-1. **`title_clean`**: Título limpio del producto sin el texto entre paréntesis. Reemplaza a `title`.
+1. **`title_clean`**: Título del producto limpio de forma completa: se elimina tanto el badge de reputación en paréntesis (`(Customer Favorite)`) como el sufijo de medida comercial (` - 10 oz`, ` - 6 ct`). Deja el nombre semántico puro del producto (ej. *"Cedar House Steamable Pepperoni Pizza"*). Reemplaza a `title`.
 2. **`title_tag`**: Badge de reputación / social proof extraído de `title` entre paréntesis mediante regex `r'\((.*?)\)'` (ej. `Best Seller`, `Customer Favorite`, `No Tag`).
 3. **`day_of_week`**: Día de la semana derivado a partir de `timestamp` (ej. `Monday`, `Tuesday`, etc., o 0 a 6).
 4. **`price_span`**: Amplitud del rango de precio del filtro ($\text{filter\_price\_max} - \text{filter\_price\_min}$).
@@ -66,7 +66,7 @@
 A continuación se listan las 21 variables que conformarán el dataset procesado:
 
 1. **`timestamp`**: Fecha y hora UTC del evento (para ordenar cronológicamente y particionar en Train, Val y Test).
-2. **`title_clean`**: Título del producto sin el badge en paréntesis (reemplaza a `title`).
+2. **`title_clean`**: Nombre puro del producto (sin badges ni sufijos de medida; reemplaza a `title`).
 3. **`title_tag`**: Badge de reputación extraído de `title`.
 4. **`description`**: Descripción del producto.
 5. **`price`**: Precio en USD.
