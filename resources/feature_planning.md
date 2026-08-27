@@ -13,7 +13,7 @@
 | 2 | `description` | **CONSERVAR** | Descripción del producto. |
 | 3 | `price` | **CONSERVAR y DERIVAR** | Precio del producto en USD. Se conserva y se usa para derivar `price_per_oz`. |
 | 4 | `category` | **CONSERVAR** | Categoría del producto. |
-| 5 | `timestamp` | **TRANSFORMAR** | Se deriva en día de la semana (`day_of_week`). |
+| 5 | `timestamp` | **CONSERVAR y DERIVAR** | Se conserva para ordenar cronológicamente y realizar el split (Train, Val, Test), y se deriva `day_of_week`. |
 | 6 | `query_id` | **DESCARTAR (NO)** | No se utiliza. |
 | 7 | `filter_category` | **DESCARTAR (NO)** | No se utiliza. |
 | 8 | `filter_price_min` | **DESCARTAR (NO)** | Se descarta el valor individual; solo se usa para calcular el `price_span`. |
@@ -63,25 +63,26 @@
 
 ## 4. Lista Final de Variables para el Dataset
 
-A continuación se listan las 20 variables que conformarán el dataset procesado:
+A continuación se listan las 21 variables que conformarán el dataset procesado:
 
-1. **`title_clean`**: Título del producto sin el badge en paréntesis (reemplaza a `title`).
-2. **`title_tag`**: Badge de reputación extraído de `title`.
-3. **`description`**: Descripción del producto.
-4. **`price`**: Precio en USD.
-5. **`price_span`**: Amplitud del rango de precio del filtro ($\text{filter\_price\_max} - \text{filter\_price\_min}$).
-6. **`price_per_oz`**: Precio unitario por onza ($\frac{\text{price}}{\text{net\_weight\_oz}}$).
-7. **`category`**: Categoría principal.
-8. **`day_of_week`**: Día de la semana derivado de `timestamp`.
-9. **`brand`**: Marca.
-10. **`unit_of_measure`**: Unidad de medida comercial.
-11. **`net_weight_oz`**: Peso neto en onzas.
-12. **`volume`**: Volumen físico calculado ($\text{largo} \times \text{ancho} \times \text{alto}$).
-13. **`storage_type`**: Tipo de almacenamiento.
-14. **`ingredients`**: Ingredientes del producto.
-15. **`num_ingredients`**: Cantidad de ingredientes declarados.
-16. **`allergens`**: Alérgenos declarados.
-17. **`has_allergens`**: Flag binaria de presencia de alérgenos ($1$ o $0$).
-18. **`nutrition_score`**: Puntuación nutricional.
-19. **`country_of_origin`**: País de origen.
-20. **`bought`**: Variable objetivo (Target BTR: `True`/`False` o `1`/`0`). Ubicada al final para su posterior separación en $X$ e $y$.
+1. **`timestamp`**: Fecha y hora UTC del evento (para ordenar cronológicamente y particionar en Train, Val y Test).
+2. **`title_clean`**: Título del producto sin el badge en paréntesis (reemplaza a `title`).
+3. **`title_tag`**: Badge de reputación extraído de `title`.
+4. **`description`**: Descripción del producto.
+5. **`price`**: Precio en USD.
+6. **`price_span`**: Amplitud del rango de precio del filtro ($\text{filter\_price\_max} - \text{filter\_price\_min}$).
+7. **`price_per_oz`**: Precio unitario por onza ($\frac{\text{price}}{\text{net\_weight\_oz}}$).
+8. **`category`**: Categoría principal.
+9. **`day_of_week`**: Día de la semana derivado de `timestamp`.
+10. **`brand`**: Marca.
+11. **`unit_of_measure`**: Unidad de medida comercial.
+12. **`net_weight_oz`**: Peso neto en onzas.
+13. **`volume`**: Volumen físico calculado ($\text{largo} \times \text{ancho} \times \text{alto}$).
+14. **`storage_type`**: Tipo de almacenamiento.
+15. **`ingredients`**: Ingredientes del producto.
+16. **`num_ingredients`**: Cantidad de ingredientes declarados.
+17. **`allergens`**: Alérgenos declarados.
+18. **`has_allergens`**: Flag binaria de presencia de alérgenos ($1$ o $0$).
+19. **`nutrition_score`**: Puntuación nutricional.
+20. **`country_of_origin`**: País de origen.
+21. **`bought`**: Variable objetivo (Target BTR: `True`/`False` o `1`/`0`). Ubicada al final para su posterior separación en $X$ e $y$.
