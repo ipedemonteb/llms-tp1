@@ -16,7 +16,7 @@ def extract_last_sentence(text: str) -> str:
 
 
 def main():
-    df = pd.read_csv("resources/supermarket_products.csv")
+    df = pd.read_csv("resources/datasets/supermarket_products.csv")
 
     df['last_sentence'] = df['description'].apply(extract_last_sentence)
 

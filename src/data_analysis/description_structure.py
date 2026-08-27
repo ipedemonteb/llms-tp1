@@ -15,7 +15,7 @@ def count_sentences(text: str) -> int:
 
 
 def main():
-    df = pd.read_csv("resources/supermarket_products.csv")
+    df = pd.read_csv("resources/datasets/supermarket_products.csv")
 
     df['n_sentences'] = df['description'].apply(count_sentences)
 

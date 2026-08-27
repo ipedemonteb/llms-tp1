@@ -1,7 +1,7 @@
 # Selección y Filtrado de Features
 
 **73.69 Large Language Models - Trabajo Práctico 1**  
-**Dataset:** `resources/supermarket_products.csv`
+**Dataset:** `resources/datasets/supermarket_products.csv`
 
 ---
 

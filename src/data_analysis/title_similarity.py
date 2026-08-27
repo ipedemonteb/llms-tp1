@@ -211,7 +211,7 @@ def main():
     print("  🔍 DETECCIÓN DE TÍTULOS QUE REFIEREN AL MISMO PRODUCTO")
     print("=" * 80)
 
-    df = pd.read_csv("resources/supermarket_products.csv")
+    df = pd.read_csv("resources/datasets/supermarket_products.csv")
     print(f"\n  Dataset cargado: {len(df):,} filas, {df['title'].nunique():,} títulos únicos\n")
 
     find_duplicates_without_tag(df)

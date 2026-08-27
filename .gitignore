@@ -98,15 +98,15 @@ logs/
 # ==============================================================================
 # DATASETS & EXPERIMENT OUTPUTS
 # ==============================================================================
-data/
-datasets/
-processed_data/
+/data/
+/datasets/
+/processed_data/
 *.parquet
 *.feather
 
 # Ignore generated CSV files but explicitly keep the assignment original dataset
 *.csv
-!/resources/supermarket_products.csv
+!/resources/datasets/supermarket_products.csv
 
 # Ignore all generated results, figures and metrics
 results/*

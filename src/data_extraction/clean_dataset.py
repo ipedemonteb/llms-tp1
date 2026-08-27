@@ -1,8 +1,8 @@
 """Script de extracción, filtrado y preprocesamiento de datos para entrenamiento.
 
-Toma el dataset crudo en `resources/supermarket_products.csv`, aplica el filtrado
+Toma el dataset crudo en `resources/datasets/supermarket_products.csv`, aplica el filtrado
 y transformaciones acordadas en `resources/feature_planning.md`, y genera el
-archivo `resources/clean_dataset.csv`.
+archivo `resources/datasets/clean_dataset.csv`.
 """
 
 import sys
@@ -41,8 +41,8 @@ def extract_title_tag(title_series: pd.Series) -> pd.Series:
 
 
 def build_clean_dataset(
-    input_path: str = "resources/supermarket_products.csv",
-    output_path: str = "resources/clean_dataset.csv"
+    input_path: str = "resources/datasets/supermarket_products.csv",
+    output_path: str = "resources/datasets/clean_dataset.csv"
 ) -> pd.DataFrame:
     """Ejecuta el pipeline completo de filtrado y transformación de features."""
     in_file = Path(input_path)

@@ -26,7 +26,7 @@ from src.data_analysis.plots import (
 )
 
 
-def run_eda(csv_path: str = "resources/supermarket_products.csv", results_dir: str = "results"):
+def run_eda(csv_path: str = "resources/datasets/supermarket_products.csv", results_dir: str = "results"):
     """Ejecuta el pipeline completo de EDA y guarda todas las figuras en `results/figures/`."""
     results_path = Path(results_dir)
     figures_path = results_path / "figures"

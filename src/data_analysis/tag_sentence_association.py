@@ -28,7 +28,7 @@ def extract_last_sentence(description: str) -> str:
     return sentences[-1] if sentences else ''
 
 
-def analyze_tag_sentence_clusters(csv_path: str = "resources/supermarket_products.csv"):
+def analyze_tag_sentence_clusters(csv_path: str = "resources/datasets/supermarket_products.csv"):
     df = pd.read_csv(csv_path)
 
     df['tag'] = df['title'].apply(extract_tag)

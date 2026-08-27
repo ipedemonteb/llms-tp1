@@ -480,7 +480,7 @@ def report_duplicates(df: pd.DataFrame):
 # Main
 # ---------------------------------------------------------------------------
 
-def run_dataset_analysis(csv_path: str = "resources/supermarket_products.csv"):
+def run_dataset_analysis(csv_path: str = "resources/datasets/supermarket_products.csv"):
     """Ejecuta el análisis descriptivo completo del dataset."""
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 

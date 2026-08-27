@@ -2,7 +2,7 @@
 
 **73.69 Large Language Models — Trabajo Práctico 1**  
 **Ejercicio 2: Desarrollo del Sistema de Predicción de BTR**  
-**Dataset:** `resources/clean_dataset.csv` (21 variables)
+**Dataset:** `resources/datasets/clean_dataset.csv` (21 variables)
 
 ---
 

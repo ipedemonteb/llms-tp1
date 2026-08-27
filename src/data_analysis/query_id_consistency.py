@@ -10,7 +10,7 @@ Reporta por cada query_id si hay consistencia o no, y un resumen final.
 import pandas as pd
 
 
-def verify_query_id_consistency(csv_path: str = "resources/supermarket_products.csv"):
+def verify_query_id_consistency(csv_path: str = "resources/datasets/supermarket_products.csv"):
     df = pd.read_csv(csv_path)
 
     filter_cols = ['filter_category', 'filter_price_min', 'filter_price_max', 'filter_storage_type']

@@ -30,7 +30,7 @@ def parse_dimensions(dim_str: str) -> Tuple[float, float, float, float]:
         return np.nan, np.nan, np.nan, np.nan
 
 
-def load_raw_data(csv_path: str = "resources/supermarket_products.csv") -> pd.DataFrame:
+def load_raw_data(csv_path: str = "resources/datasets/supermarket_products.csv") -> pd.DataFrame:
     """Carga el dataset crudo desde el archivo CSV."""
     path = Path(csv_path)
     if not path.exists():
