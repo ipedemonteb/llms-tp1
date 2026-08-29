@@ -113,25 +113,84 @@ uv run python -m src.tokenizer.bpe --train_file resources/datasets/transformer_t
 uv run python -m src.training.train                            # entrena y evalúa
 ```
 
-### 3.2. Experimentos
+### 3.2. Configuraciones de experimento (`--config`)
+
+Los hiperparámetros pueden definirse en un archivo JSON dentro de `config/`, en lugar de escribir
+comandos con veinte flags. Cada experimento queda así versionado y reproducible.
 
 ```bash
-# Modelo híbrido con late fusion (default)
-uv run python -m src.training.train --run_name late_fusion
+uv run python -m src.training.train --config late_fusion
+```
 
+`--config late_fusion` se resuelve como `config/late_fusion.json`. También se acepta una ruta
+explícita (`--config experimentos/prueba.json`).
+
+**Precedencia de valores**, de menor a mayor prioridad:
+
+```
+defaults del parser  <  archivo de --config  <  flags explícitos de la CLI
+```
+
+Eso permite reutilizar una configuración variando un único hiperparámetro, sin duplicar archivos:
+
+```bash
+# Cinco semillas sobre la misma configuración
+for s in 1 2 3 4 5; do
+  uv run python -m src.training.train --config late_fusion --seed $s --run_name lf_seed$s
+done
+```
+
+**Formato del archivo.** Las claves son los mismos nombres que los flags, sin los guiones. Las que
+empiezan con `_` se ignoran, lo que permite dejar notas dentro del archivo:
+
+```json
+{
+  "_descripcion": "Modelo híbrido de referencia.",
+  "use_text": true,
+  "use_tabular": false,
+  "d_model": 64,
+  "num_layers": 2,
+  "text_fields": ["title_clean", "badge", "description"],
+  "lr": 0.001
+}
+```
+
+Tres detalles del formato:
+- Los flags `--no_text` / `--no_tabular` se expresan como `"use_text": false` / `"use_tabular": false`.
+- `text_fields` acepta una **lista** en JSON (por CLI sigue siendo una string separada por comas).
+- Si la config no define `run_name`, se usa el nombre del archivo. Así `--config modelo_chico`
+  guarda en `results/runs/modelo_chico/` sin configurar nada más.
+
+Una clave mal escrita **aborta la corrida con un error**, en lugar de ignorarse en silencio. Una
+config inexistente lista las disponibles en el mensaje de error.
+
+#### Configuraciones incluidas
+
+| Archivo | Experimento |
+| :--- | :--- |
+| `late_fusion.json` | Modelo híbrido de referencia. |
+| `baseline_texto.json` | Solo Transformer, sin rama tabular. |
+| `baseline_tabular.json` | Solo MLP tabular, sin Transformer. |
+| `cross_attention.json` | Ablación del módulo de fusión. |
+| `regularizacion_alta.json` | Dropout 0,3 y weight decay 0,05 contra el overfitting. |
+| `modelo_chico.json` | Ablación de capacidad: `d_model=32`, 1 capa, 2 cabezales. |
+| `texto_con_brand.json` | Ablación de features: `brand` como séptimo campo de texto. |
+
+### 3.3. Experimentos por flags
+
+Los flags siguen soportados en su totalidad y pueden combinarse con `--config`:
+
+```bash
 # Baselines
 uv run python -m src.training.train --no_tabular --run_name baseline_texto
 uv run python -m src.training.train --no_text    --run_name baseline_tabular
-
-# Ablación del módulo de fusión
-uv run python -m src.training.train --fusion cross --run_name cross_attention
 
 # Ablación de la arquitectura del Transformer
 uv run python -m src.training.train --d_model 32 --num_layers 1 --n_heads 2 --run_name small
 uv run python -m src.training.train --pooling cls --run_name pooling_cls
 uv run python -m src.training.train --pos_encoding none --run_name sin_posicional
 
-# Ablación de features de texto (¿aporta agregar `brand` como séptimo campo?)
+# Ablación de features de texto
 uv run python -m src.training.train \
   --text_fields title_clean,badge,description,ingredients,country_of_origin,allergens,brand \
   --run_name texto_con_brand
@@ -139,6 +198,9 @@ uv run python -m src.training.train \
 # Ablación de la codificación categórica
 uv run python -m src.training.train --cat_encoding embedding --run_name entity_embeddings
 ```
+
+Ver la lista completa de flags con `uv run python -m src.training.train --help`.
+Restricción a respetar: **`d_model` debe ser divisible por `n_heads`**.
 
 Cada corrida guarda en `results/runs/<run_name>/`:
 - `checkpoint.pt` — pesos del mejor epoch más el historial.
@@ -180,6 +242,7 @@ uv run pytest tests/test_metrics.py
 | `test_preprocessor.py` | Estandarización correcta, `log1p` solo en los campos marcados, ausencia de leakage entre splits, categorías no vistas → índice 0, round-trip del artefacto JSON, columnas constantes sin división por cero. |
 | `test_model.py` | Dimensiones de salida, flujo de gradientes a **ambas** ramas, los pesos de atención suman 1 y respetan la máscara, las filas sin padding no se ven afectadas por enmascarar, independencia entre muestras del lote. |
 | `test_training.py` | Alineación features/etiquetas, integridad de los splits, early stopping, restauración del mejor checkpoint, reproducibilidad con semilla fija, y el **test de sobreajuste**. |
+| `test_config.py` | Resolución de nombres y rutas, precedencia CLI sobre archivo, claves desconocidas y JSON inválido que fallan ruidosamente, y validación de que todas las configs versionadas en `config/` cargan sin error. |
 
 > **El test más importante es `test_el_modelo_puede_sobreajustar_un_lote_chico`.** Con 32 ejemplos y
 > sin regularización, un modelo correctamente cableado debe memorizarlos (loss < 50% de la inicial,

@@ -3,34 +3,39 @@
 Ensambla los DataLoaders, construye el modelo según la configuración pedida, entrena con early
 stopping y evalúa una única vez sobre test con el mejor checkpoint de validación.
 
+Los hiperparámetros se pueden pasar por flags, por un archivo de configuración JSON en `config/`,
+o combinando ambos. La precedencia es:
+
+    defaults del parser  <  archivo de --config  <  flags explícitos
+
 Ejemplos:
 
-    # Modelo híbrido completo con late fusion (configuración por defecto)
-    uv run python -m src.training.train
+    # Con una configuración versionada de config/
+    uv run python -m src.training.train --config late_fusion
 
-    # Baseline de texto puro (sin rama tabular)
-    uv run python -m src.training.train --no_tabular --run_name baseline_texto
+    # Reutilizando una configuración y pisando un valor puntual
+    uv run python -m src.training.train --config late_fusion --seed 7 --run_name late_fusion_s7
 
-    # Baseline tabular puro (sin Transformer)
-    uv run python -m src.training.train --no_text --run_name baseline_tabular
-
-    # Ablación del módulo de fusión
-    uv run python -m src.training.train --fusion cross --run_name cross_attention
-
-    # Ablación de la arquitectura del Transformer
+    # Solo con flags (sigue soportado)
     uv run python -m src.training.train --d_model 32 --num_layers 1 --n_heads 2
+
+    # Baselines
+    uv run python -m src.training.train --no_tabular --run_name baseline_texto
+    uv run python -m src.training.train --no_text --run_name baseline_tabular
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Optional
 
 from src.hybrid_transformer.fusion import BTRModel, FusionConfig
 from src.hybrid_transformer.tabular_encoder import TabularEncoder, TabularEncoderConfig
 from src.hybrid_transformer.text_encoder import TextTransformerConfig, TextTransformerEncoder
+from src.training.config import apply_config, resolve_config_path
 from src.training.dataset import build_dataloaders
 from src.training.metrics import lift_over_baseline
 from src.training.trainer import Trainer, TrainerConfig
@@ -70,8 +75,36 @@ def build_model(args, artefactos) -> BTRModel:
     return BTRModel(text_encoder=text_encoder, tabular_encoder=tabular_encoder, fusion_config=fusion_config)
 
 
-def main(argv: Optional[list] = None) -> dict:
+def advertir_si_sobrescribe(salida: Path) -> bool:
+    """Avisa si el directorio de la corrida ya tiene resultados que van a perderse.
+
+    No aborta: la sobrescritura sigue siendo válida al repetir un experimento a propósito. El
+    aviso incluye la métrica de la corrida previa para que quede claro qué se está descartando.
+    """
+    resumen_previo = salida / "summary.json"
+    if not resumen_previo.exists():
+        return False
+
+    detalle = ""
+    try:
+        previo = json.loads(resumen_previo.read_text(encoding="utf-8"))
+        pr_auc = previo.get("test_metrics", {}).get("test_pr_auc")
+        if pr_auc is not None:
+            detalle = f" (PR-AUC de test = {pr_auc:.4f})"
+    except (json.JSONDecodeError, OSError):
+        pass
+
+    print(f"\n⚠️  ADVERTENCIA: ya existen resultados en {salida}/{detalle}")
+    print("    Esta corrida los va a sobrescribir. Usá --run_name para conservarlos.\n")
+    return True
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Construye el parser de la CLI."""
     parser = argparse.ArgumentParser(description="Entrena el modelo de predicción de BTR.")
+
+    parser.add_argument("--config", type=str, default=None,
+                        help="Nombre de una configuración en config/ (sin .json) o ruta a un archivo JSON.")
 
     # Datos
     parser.add_argument("--data_dir", type=str, default="resources/datasets")
@@ -112,14 +145,27 @@ def main(argv: Optional[list] = None) -> dict:
     parser.add_argument("--device", type=str, default=None)
 
     # Salida
-    parser.add_argument("--run_name", type=str, default="late_fusion")
+    parser.add_argument("--run_name", type=str, default=None,
+                        help="Nombre del directorio de resultados. Por defecto se deriva del "
+                             "nombre de la config, o de los hiperparámetros de la corrida.")
     parser.add_argument("--results_dir", type=str, default="results/runs")
 
-    args = parser.parse_args(argv)
-    text_fields = [c.strip() for c in args.text_fields.split(",")] if args.text_fields else None
+    return parser
+
+
+def main(argv: Optional[list] = None) -> dict:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    args = apply_config(build_parser().parse_args(argv), build_parser, argv)
+
+    # `text_fields` se acepta como lista en el JSON o como string separado por comas en la CLI
+    text_fields = args.text_fields
+    if isinstance(text_fields, str):
+        text_fields = [c.strip() for c in text_fields.split(",") if c.strip()]
 
     print("=" * 88)
     print(f"  ENTRENAMIENTO DE BTR — run: {args.run_name}")
+    if args.config:
+        print(f"  configuración: {resolve_config_path(args.config)}")
     print("=" * 88)
 
     loaders, artefactos = build_dataloaders(
@@ -160,6 +206,7 @@ def main(argv: Optional[list] = None) -> dict:
     print("=" * 88)
 
     salida = Path(args.results_dir) / args.run_name
+    advertir_si_sobrescribe(salida)
     salida.mkdir(parents=True, exist_ok=True)
     trainer.save_checkpoint(salida / "checkpoint.pt")
     resumen = {

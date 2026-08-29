@@ -1,0 +1,15 @@
+{
+  "_descripcion": "Combate el overfitting observado desde la época 3-5: más dropout y weight decay.",
+  "fusion": "late",
+  "d_model": 64,
+  "n_heads": 4,
+  "d_ff": 256,
+  "num_layers": 2,
+  "dropout": 0.3,
+  "weight_decay": 0.05,
+  "epochs": 30,
+  "lr": 0.001,
+  "patience": 8,
+  "batch_size": 64,
+  "seed": 42
+}

@@ -1,0 +1,18 @@
+{
+  "_descripcion": "Baseline de texto puro: solo el Transformer, sin rama tabular. Aísla el aporte de lo tabular.",
+  "use_text": true,
+  "use_tabular": false,
+  "d_model": 64,
+  "n_heads": 4,
+  "d_ff": 256,
+  "num_layers": 2,
+  "pooling": "mean",
+  "pos_encoding": "sinusoidal",
+  "epochs": 20,
+  "lr": 0.001,
+  "weight_decay": 0.01,
+  "dropout": 0.1,
+  "patience": 5,
+  "batch_size": 64,
+  "seed": 42
+}

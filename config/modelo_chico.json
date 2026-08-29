@@ -1,0 +1,16 @@
+{
+  "_descripcion": "Ablación de capacidad: Transformer reducido (d_model=32, 1 capa, 2 cabezales).",
+  "fusion": "late",
+  "d_model": 32,
+  "n_heads": 2,
+  "d_ff": 128,
+  "num_layers": 1,
+  "d_tab": 16,
+  "epochs": 20,
+  "lr": 0.001,
+  "weight_decay": 0.01,
+  "dropout": 0.1,
+  "patience": 5,
+  "batch_size": 64,
+  "seed": 42
+}
