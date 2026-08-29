@@ -110,8 +110,11 @@ def build_clean_dataset(
         lambda x: len(x.split(',')) if x else 0
     )
 
-    # 17. allergens (imputando NaN a 'None')
-    df_clean['allergens'] = df_raw['allergens'].fillna('None')
+    # 17. allergens (imputando NaN a 'No Allergens')
+    # NOTA: no usar 'None' como centinela. pandas lo incluye en su lista de `na_values`
+    # por defecto, así que el valor se re-interpretaría como NaN al releer el CSV y la
+    # imputación se perdería en cada round-trip.
+    df_clean['allergens'] = df_raw['allergens'].fillna('No Allergens')
 
     # 18. has_allergens (flag binaria de presencia de alérgenos: 1 o 0)
     df_clean['has_allergens'] = df_raw['allergens'].notna().astype(int)

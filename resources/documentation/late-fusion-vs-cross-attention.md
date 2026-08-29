@@ -9,7 +9,7 @@
 ## 1. Introducción y Contexto
 
 En el problema de predicción de **Buy Through Rate (BTR)** (`bought \in \{0, 1\}`), el dataset combina dos tipos de señales complementarias:
-1. **Señales Textuales / Semánticas:** `title_clean`, `description` e `ingredients` (secuencias de longitud variable con dependencias lingüísticas y claims de marketing).
+1. **Señales Textuales / Semánticas:** `title_clean`, `badge`, `description`, `ingredients`, `country_of_origin` y `allergens` (secuencias de longitud variable con dependencias lingüísticas y claims de marketing).
 2. **Señales Tabulares / Estructuradas:** Variables numéricas continuas (`price`, `price_span`, `price_per_oz`, `volume`, `nutrition_score`) y categóricas (`category`, `brand`, `storage_type`, `title_tag`, etc.).
 
 El desafío central de diseño arquitectónico radica en **cómo integrar de manera óptima la representación del texto extraída por el Transformer con las características tabulares**. Las dos alternativas principales en discusión son:

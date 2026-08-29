@@ -27,7 +27,7 @@
 | 16 | `dimensions_in` | **DESCARTAR (NO)** | Se descarta el string original y se reemplaza por el cálculo del volumen (`volume`). |
 | 17 | `storage_type` | **CONSERVAR** | Tipo de almacenamiento requerido (`Ambient`, `Refrigerated`, `Frozen`). |
 | 18 | `ingredients` | **CONSERVAR y DERIVAR** | Lista de ingredientes. Se conserva y se deriva `num_ingredients`. |
-| 19 | `allergens` | **CONSERVAR y DERIVAR** | Alérgenos declarados. Se conserva y se deriva `has_allergens`. |
+| 19 | `allergens` | **CONSERVAR y DERIVAR** | Alérgenos declarados. Los nulos (4.455 filas) se imputan con el centinela `No Allergens`, ya que `NaN` significa "sin alérgenos declarados" y no dato faltante. Se deriva `has_allergens`. |
 | 20 | `nutrition_score` | **CONSERVAR** | Puntuación nutricional continua (0 a 100). |
 | 21 | `country_of_origin` | **CONSERVAR** | País de origen del producto. |
 | 22 | `bought` | **TARGET (AL FINAL)** | Variable objetivo (BTR). Se ubica al final para separarla como target en el entrenamiento. |
@@ -57,7 +57,13 @@
 5. **`price_per_oz`**: Precio unitario por onza ($\frac{\text{price}}{\text{net\_weight\_oz}}$).
 6. **`volume`**: Volumen físico calculado a partir de `dimensions_in` ($\text{largo} \times \text{ancho} \times \text{alto}$).
 7. **`num_ingredients`**: Cantidad de ingredientes declarados (conteo a partir de `ingredients`).
-8. **`has_allergens`**: Flag binaria ($1$ si contiene alérgenos declarados, $0$ si es `NaN` / None).
+8. **`has_allergens`**: Flag binaria ($1$ si contiene alérgenos declarados, $0$ si el valor original era `NaN`).
+
+> [!IMPORTANT]
+> **El centinela de imputación no puede ser `'None'`.** pandas incluye los strings `None`, `NA`,
+> `NULL` y `NaN` en su lista de `na_values` por defecto, de modo que un `fillna('None')` se
+> reinterpreta como nulo al releer el CSV y la imputación se pierde en cada round-trip. Por eso
+> `allergens` usa `No Allergens`, siguiendo la misma convención que `No Tag` en `title_tag`.
 
 ---
 
@@ -81,8 +87,60 @@ A continuación se listan las 21 variables que conformarán el dataset procesado
 14. **`storage_type`**: Tipo de almacenamiento.
 15. **`ingredients`**: Ingredientes del producto.
 16. **`num_ingredients`**: Cantidad de ingredientes declarados.
-17. **`allergens`**: Alérgenos declarados.
+17. **`allergens`**: Alérgenos declarados (nulos imputados como `No Allergens`).
 18. **`has_allergens`**: Flag binaria de presencia de alérgenos ($1$ o $0$).
 19. **`nutrition_score`**: Puntuación nutricional.
 20. **`country_of_origin`**: País de origen.
 21. **`bought`**: Variable objetivo (Target BTR: `True`/`False` o `1`/`0`). Ubicada al final para su posterior separación en $X$ e $y$.
+
+---
+
+## 5. Ruteo de Features: Rama de Texto vs. Rama Tabular
+
+`clean_dataset.csv` es un **feature store agnóstico**: conserva las 21 variables sin asumir qué
+módulo las consume. La asignación a cada rama se decide en
+`src/data_extraction/build_transformer_dataset.py` (constante `DEFAULT_TEXT_FIELDS`) y es
+configurable vía `--text_fields`.
+
+### 5.1. Composición de la secuencia de texto
+
+Los campos se concatenan con el separador `" | "` en este orden:
+
+```
+title_clean | badge | description | ingredients | country_of_origin | allergens
+```
+
+### 5.2. Criterio de asignación
+
+El criterio es **si el string ya está presente en la secuencia**, no si la variable tiene señal.
+Un campo cuyo valor ya aparece literalmente en el texto no se agrega, porque duplicaría tokens
+sin aportar información nueva (verificado empíricamente sobre las 10.000 filas):
+
+| Variable | Presencia literal en el texto | Decisión |
+| :--- | :---: | :--- |
+| `brand` | **100%** (es el prefijo de `title_clean`) | Solo rama tabular. Ya entra al encoder vía el título. |
+| `category` | **100%** (la descripción la enuncia) | Solo rama tabular. |
+| `storage_type` | **100%** (la descripción la enuncia) | Solo rama tabular. |
+| `unit_of_measure` | **100%** (la descripción la enuncia) | Solo rama tabular. |
+| `allergens` | 35% de las filas que declaran alérgeno | **Se agrega al texto** + rama tabular. |
+| `country_of_origin` | **0%** | **Se agrega al texto** + rama tabular. |
+
+La verificación de `brand` está automatizada en
+`src/data_analysis/brand_title_consistency.py`, que confirma la inclusión en el título en
+10.000/10.000 filas bajo tres criterios (contenida en `title`, contenida en `title_clean`, y
+`title_clean` empieza con la marca).
+
+### 5.3. Redundancia deliberada entre ramas
+
+Las variables presentes en ambas ramas **no son un error de diseño**. Cada representación aporta
+algo distinto:
+
+* **En el texto:** representación composicional y distribuida entre subpalabras, robusta ante
+  valores no vistos (el BPE byte-level nunca emite `[UNK]`).
+* **En la rama tabular:** identidad atómica y sin ambigüedad léxica, con un sesgo inductivo mucho
+  más fuerte y por lo tanto más eficiente en cantidad de muestras.
+
+Esa redundancia es lo que habilita el estudio de ablación: comparar el modelo con y sin la rama
+tabular cuantifica cuánto de la señal categórica el Transformer ya extrae por su cuenta desde el
+texto. Requisito para poder medirlo: **la variable debe estar en `clean_dataset.csv`**, aunque un
+experimento puntual decida no usarla.

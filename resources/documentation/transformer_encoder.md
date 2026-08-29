@@ -10,17 +10,19 @@
 ## 1. Introducción y Rol en la Arquitectura Global
 
 En el marco del sistema de predicción de **Buy Through Rate (BTR)** (`bought \in {0, 1}`), el catálogo de productos de supermercado contiene un conjunto rico de señales textuales y semánticas no estructuradas:
-* `title_clean`: Título comercial del producto limpio.
+* `title_clean`: Título comercial del producto limpio. Incluye la marca como prefijo literal en el 100% de las filas, de modo que `brand` entra al encoder por esta vía.
 * `badge` / `title_tag`: Etiquetas de prueba social (*"Best Seller"*, *"Customer Favorite"*, *"Top Rated"*, etc.).
-* `description`: Descripción comercial detallada (atributos de sabor, textura, preparación).
+* `description`: Descripción comercial detallada (atributos de sabor, textura, preparación). Enuncia además `category`, `storage_type` y `unit_of_measure` en prosa.
 * `ingredients`: Listado de materias primas y aditivos alimentarios.
+* `country_of_origin`: País de origen. No aparece en ningún otro campo textual, por lo que se incorpora explícitamente.
+* `allergens`: Alérgenos declarados. Solo el 35% de las filas que declaran alérgeno lo mencionan en la prosa, por lo que también se incorpora.
 
 El módulo **`TextTransformerEncoder`** implementa un modelo **Transformer Encoder-Only** (siguiendo los principios de Vaswani et al., 2017 y BERT) encargado de procesar la salida del tokenizador Byte-Level BPE y mapear las secuencias de texto a un espacio latente continuo y denso, produciendo el vector contextual $e_{\text{text}} \in \mathbb{R}^{d_{\text{model}}}$.
 
 Este vector $e_{\text{text}}$ representa la semántica unificada del producto y está diseñado para acoplarse con los embeddings de las variables categóricas y las proyecciones numéricas en la etapa de **Fusión Multimodal** (Late Fusion o Cross-Attention) antes de la cabeza clasificadora MLP.
 
 ```
-[ Texto del Producto: "Cedar House Pizza | Best Seller | Crispy crust | Flour, Yeast" ]
+[ "Cedar House Pizza | Well Reviewed | ... frozen storage. | Flour, Yeast | United States | Wheat" ]
                                       │
                                       ▼
                         Byte-Level BPE Tokenizer
@@ -168,7 +170,7 @@ La clase `TextTransformerConfig` centraliza todos los hiperparámetros con valor
 
 | Hiperparámetro | Tipo | Default Base | Opciones / Rango de Ablación | Impacto Arquitectónico y Computacional |
 | :--- | :---: | :---: | :---: | :--- |
-| **`vocab_size`** | `int` | `2048` | `[1024, 1691, 2048, 4096]` | Cantidad de filas en `nn.Embedding`. A mayor tamaño, tokens más largos y secuencias más breves, a costa de mayor cantidad de parámetros en la matriz inicial. |
+| **`vocab_size`** | `int` | `2048` | `1720` (valor real del tokenizador) | Cantidad de filas en `nn.Embedding`. **Debe pasarse siempre `tokenizer.vocab_size`**, no el default: el corpus satura en 1.720 tokens con `min_frequency=2`, así que fijar 2.048 desperdiciaría 328 filas de embedding nunca indexadas. Para variarlo en la ablación hay que reentrenar el tokenizador bajando `min_frequency`. |
 | **`max_seq_len`** | `int` | `128` | `[64, 128, 256]` | Longitud máxima de secuencia en tokens. Define el tamaño del buffer posicional y la dimensión temporal de los tensores. |
 | **`d_model`** | `int` | `64` | `[32, 64, 96, 128]` | Dimensión del espacio latente y de los estados ocultos. Debe ser divisible por `n_heads`. Respeta $d_{\text{model}} < 100$ de la consigna. |
 | **`n_heads`** | `int` | `4` | `[2, 4, 8]` | Cantidad de cabezales de auto-atención paralelos. Define $d_k = d_{\text{model}} / n_{\text{heads}}$. |
@@ -187,11 +189,11 @@ La clase `TextTransformerConfig` centraliza todos los hiperparámetros con valor
 ## 5. Conteo y Desglose de Parámetros
 
 Para la configuración base recomendada:
-* `vocab_size = 2048`, `d_model = 64`, `n_heads = 4`, `d_ff = 256`, `num_layers = 2`.
+* `vocab_size = 1720` (valor real del tokenizador entrenado), `d_model = 64`, `n_heads = 4`, `d_ff = 256`, `num_layers = 2`.
 
 ```
 1. Matriz de Embedding (nn.Embedding):
-   vocab_size * d_model = 2,048 * 64 = 131,072 parámetros
+   vocab_size * d_model = 1,720 * 64 = 110,080 parámetros
 
 2. Por cada Bloque Encoder (x2 capas):
    - Multi-Head Attention:
@@ -209,10 +211,15 @@ Para la configuración base recomendada:
    2 * 64 = 128 parámetros
 
 ========================================================================
-TOTAL GENERAL:            231,168 parámetros (~0.23 M)
+TOTAL GENERAL:            210,176 parámetros (~0.21 M)
 TOTAL SIN EMBEDDINGS:     100,096 parámetros (~0.10 M)
 ========================================================================
 ```
+
+> Valores verificados con `model.get_num_params()` instanciando el encoder con
+> `vocab_size=tokenizer.vocab_size`. Si se fijara el default `vocab_size=2048` en lugar del valor
+> real del tokenizador, el total subiría a 231.168 parámetros, de los cuales 20.992 corresponderían
+> a filas de embedding que ningún token indexa jamás.
 
 > [!NOTE]
 > Con solo $\approx 100\text{k}$ parámetros en el núcleo del Transformer, el modelo es extremadamente liviano, permitiendo iteraciones de entrenamiento de pocos minutos en GPU/MPS o CPU, facilitando un estudio de ablación exhaustivo tal como exige `assignment.md`.
@@ -248,8 +255,12 @@ model = TextTransformerEncoder(config)
 
 # 3. Tokenizar un lote de productos de ejemplo
 texts = [
-    "Cedar House Steamable Pepperoni Pizza | Best Seller | Crispy crust | Flour, Yeast, Pepperoni",
-    "Organic Whole Milk | Customer Favorite | Fresh dairy milk | Grade A Milk",
+    "Cedar House Steamable Pepperoni Pizza | Well Reviewed | "
+    "Steamable pepperoni pizza in a 10 oz package. Listed under frozen. | "
+    "Prepared ingredients, Spices, Salt | United States | Wheat",
+    "Sunny Basket Ready To Heat Waffles | Customer Favorite | "
+    "Ready to heat waffles in a 6 ct package. Listed under frozen. | "
+    "Flour, Sugar, Eggs | Canada | Milk",
 ]
 encoded = tokenizer.encode_batch(texts, max_length=128, return_tensors="pt")
 

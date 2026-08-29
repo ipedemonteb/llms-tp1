@@ -1,0 +1,124 @@
+{
+  "numeric_fields": [
+    "price",
+    "price_span",
+    "price_per_oz",
+    "net_weight_oz",
+    "volume",
+    "num_ingredients",
+    "nutrition_score"
+  ],
+  "log1p_fields": [
+    "price_per_oz",
+    "net_weight_oz",
+    "volume"
+  ],
+  "categorical_fields": [
+    "category",
+    "day_of_week",
+    "brand",
+    "unit_of_measure",
+    "storage_type",
+    "has_allergens",
+    "allergens",
+    "country_of_origin"
+  ],
+  "means": {
+    "price": 8.55405,
+    "price_span": 15.442045714285715,
+    "price_per_oz": 0.3745004207526784,
+    "net_weight_oz": 3.09692157023828,
+    "volume": 4.887951385790138,
+    "num_ingredients": 2.613857142857143,
+    "nutrition_score": 51.351
+  },
+  "stds": {
+    "price": 5.586964436237778,
+    "price_span": 6.254635776827245,
+    "price_per_oz": 0.2908798921123446,
+    "net_weight_oz": 0.7082167800437834,
+    "volume": 1.0540642326019076,
+    "num_ingredients": 1.2968784422132829,
+    "nutrition_score": 26.07389113653733
+  },
+  "categories": {
+    "category": [
+      "Baby",
+      "Bakery",
+      "Beverages",
+      "Dairy",
+      "Frozen",
+      "Household",
+      "Meat",
+      "Pantry",
+      "Personal Care",
+      "Produce",
+      "Seafood",
+      "Snacks"
+    ],
+    "day_of_week": [
+      "Friday",
+      "Monday",
+      "Saturday",
+      "Sunday",
+      "Thursday",
+      "Tuesday",
+      "Wednesday"
+    ],
+    "brand": [
+      "Blue Cart",
+      "Cedar House",
+      "Corner Market",
+      "Daily Table",
+      "FreshField",
+      "Golden Acre",
+      "Green Fork",
+      "Harvest Lane",
+      "Market Pantry Co.",
+      "North Star Foods",
+      "Oak & Grain",
+      "Purely Good",
+      "Riverbend",
+      "Sunny Basket",
+      "Valley Select"
+    ],
+    "unit_of_measure": [
+      "ct",
+      "fl oz",
+      "gal",
+      "lb",
+      "oz"
+    ],
+    "storage_type": [
+      "Ambient",
+      "Frozen",
+      "Refrigerated"
+    ],
+    "has_allergens": [
+      "0",
+      "1"
+    ],
+    "allergens": [
+      "Fish",
+      "Milk",
+      "No Allergens",
+      "Peanuts",
+      "Shellfish",
+      "Soy",
+      "Tree nuts",
+      "Wheat"
+    ],
+    "country_of_origin": [
+      "Canada",
+      "Chile",
+      "Italy",
+      "Mexico",
+      "New Zealand",
+      "Peru",
+      "Spain",
+      "Thailand",
+      "United States",
+      "Vietnam"
+    ]
+  }
+}

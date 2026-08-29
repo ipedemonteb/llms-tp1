@@ -11,7 +11,8 @@
 El objetivo del sistema es predecir el **Buy Through Rate (BTR)**, modelado como la probabilidad de que un producto impreso sea comprado (`bought = 1`). A partir del análisis exploratorio (EDA) y la extracción de features (`clean_dataset.py`), las 20 variables de entrada se dividen naturalmente en tres modalidades con propiedades estadísticas y semánticas distintas:
 
 ```
-                              ┌──> Texto Libre / Secuencias (title_clean, description, ingredients)
+                              ┌──> Texto Libre / Secuencias (title_clean, badge, description,
+                              │                              ingredients, country_of_origin, allergens)
                               │
 Variables de Entrada (X) ─────┼──> Variables Numéricas Continuas (price, price_span, price_per_oz, volume, etc.)
                               │
@@ -22,7 +23,7 @@ Variables de Entrada (X) ─────┼──> Variables Numéricas Continua
 
 | Modalidad | Variables | Modelo Adecuado | Justificación Teórica y Práctica |
 | :--- | :--- | :--- | :--- |
-| **Texto y Secuencias** | `title_clean`, `description`, `ingredients` | **Transformer (Self-Attention)** | Captura dependencias sintácticas y semánticas de largo alcance, orden de palabras, claims de marketing e interacciones contextuales que los modelos tabulares planos no pueden inferir. |
+| **Texto y Secuencias** | `title_clean`, `badge`, `description`, `ingredients`, `country_of_origin`, `allergens` | **Transformer (Self-Attention)** | Captura dependencias sintácticas y semánticas de largo alcance, orden de palabras, claims de marketing e interacciones contextuales que los modelos tabulares planos no pueden inferir. |
 | **Numéricas Continuas** | `price`, `price_span`, `price_per_oz`, `net_weight_oz`, `volume`, `nutrition_score`, `num_ingredients` | **MLP / Capas Lineales** o **GBDT (LightGBM/XGBoost)** | Gran eficiencia para aprender relaciones de escala, particiones por umbrales rígidos (ej. precios límite) y no linealidades continuas sin requerir tokenización artificial. |
 | **Categóricas Estructuradas** | `category`, `brand`, `storage_type`, `unit_of_measure`, `title_tag`, `country_of_origin`, `day_of_week` | **Entity Embeddings (`nn.Embedding`)** o **Codificación Nativa GBDT** | Mapea categorías de baja y media cardinalidad a un espacio latente continuo y denso, evitando la dispersión del One-Hot Encoding y aprendiendo similitudes semánticas entre categorías. |
 
@@ -39,7 +40,7 @@ A continuación se detallan 4 estrategias concretas de integración del Transfor
 Entrenamiento conjunto de un único grafo computacional en PyTorch donde las representaciones densas de texto y variables tabulares se extraen en ramas independientes y se fusionan mediante concatenación antes de la cabeza clasificadora.
 
 ```
-[ title_clean + description + ingredients ]
+[ title_clean + badge + description + ingredients + country_of_origin + allergens ]
                      │
             Tokenizador + Positional Encoding
                      │
@@ -55,7 +56,7 @@ Entrenamiento conjunto de un único grafo computacional en PyTorch donde las rep
 ```
 
 * **Rama de Texto:**
-  * Secuencia de entrada: Concatenación formateada de `title_clean`, `description` e `ingredients`.
+  * Secuencia de entrada: Concatenación formateada de `title_clean`, `badge`, `description`, `ingredients`, `country_of_origin` y `allergens`, separados por `" | "` (configurable vía `--text_fields`).
   * Encoder Transformer liviano ($d_{\text{model}} \in [64, 128]$, $L \in [2, 4]$ capas, $H \in [2, 4]$ cabezales).
   * Salida: Vector contextual $e_{\text{text}} \in \mathbb{R}^{d_{\text{text}}}$.
 * **Rama Tabular:**

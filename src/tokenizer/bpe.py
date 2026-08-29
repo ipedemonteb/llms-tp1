@@ -384,7 +384,12 @@ def main():
     parser.add_argument(
         "--test_sentence",
         type=str,
-        default="Cedar House Steamable Pepperoni Pizza | Best Seller | Crispy crust with rich sauce | Flour, Yeast, Pepperoni",
+        default=(
+            "Cedar House Steamable Pepperoni Pizza | Well Reviewed | "
+            "Steamable pepperoni pizza in a 10 oz package for online grocery orders. "
+            "Listed under frozen and intended for frozen storage. | "
+            "Prepared ingredients, Spices, Salt | United States | Wheat"
+        ),
         help="Frase de prueba para validar la tokenización y decodificación.",
     )
 
@@ -422,7 +427,12 @@ def main():
     # 4. Probar encode_batch con tensores de PyTorch
     batch_sample = [
         args.test_sentence,
-        "Organic Valley Whole Milk | Customer Favorite | Fresh organic dairy | Grade A Pasteurized Milk",
+        (
+            "Sunny Basket Ready To Heat Waffles | Customer Favorite | "
+            "Ready to heat waffles in a 6 ct package for online grocery orders. "
+            "Listed under frozen and intended for frozen storage. | "
+            "Flour, Sugar, Eggs | Canada | Milk"
+        ),
     ]
     batch_output = tokenizer.encode_batch(batch_sample, max_length=args.max_length, return_tensors="pt")
 

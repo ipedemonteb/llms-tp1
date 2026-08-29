@@ -9,7 +9,7 @@
 
 ## 1. Introducción y Justificación Teórica
 
-Para procesar las señales de texto del catálogo de supermercado (`title_clean`, `badge`, `description`, `ingredients`), se implementó un algoritmo de tokenización a nivel de subpalabras basado en **Byte-Level BPE (Byte-Pair Encoding)**.
+Para procesar las señales de texto del catálogo de supermercado (`title_clean`, `badge`, `description`, `ingredients`, `country_of_origin`, `allergens`), se implementó un algoritmo de tokenización a nivel de subpalabras basado en **Byte-Level BPE (Byte-Pair Encoding)**.
 
 ### ¿Por qué Byte-Level BPE frente a otras alternativas?
 
@@ -25,7 +25,7 @@ Alternativas de Tokenización ──┼──> 2. Char-Level ──────>
    * El BPE tradicional arranca a nivel de caracteres Unicode. Si en *Test* aparece un símbolo o caracter no visto en *Train* (ej. `™`, `°`, `½`, tildes raras), genera un token `[UNK]`, perdiendo información.
    * **Byte-Level BPE** utiliza como alfabeto base los **256 valores posibles de un byte UTF-8** (`0x00` a `0xFF`). Cualquier texto, símbolo o caracter arbitrario en UTF-8 se puede descomponer en bytes, por lo que **el modelo jamás emite un token `[UNK]`**.
 2. **Dimensionamiento Óptimo de la Matriz de Embedding ($|V| \times d_{\text{model}}$):**
-   * En lugar de usar un tokenizador sobredimensionado de un modelo preentrenado (ej. BERT con $|V|=30.522$, que requeriría casi 2 millones de parámetros en `nn.Embedding` para $d_{\text{model}}=64$), Byte-Level BPE nos permite entrenar un vocabulario a medida ($|V| \in [1.024, 4.096]$), reduciendo los parámetros a solo $\approx 130.000$.
+   * En lugar de usar un tokenizador sobredimensionado de un modelo preentrenado (ej. BERT con $|V|=30.522$, que requeriría casi 2 millones de parámetros en `nn.Embedding` para $d_{\text{model}}=64$), Byte-Level BPE nos permite entrenar un vocabulario a medida. El artefacto entrenado sobre nuestro corpus tiene $|V|=1.720$, lo que reduce la matriz de embedding a $1.720 \times 64 = 110.080$ parámetros.
 3. **Manejo de Morfología de Catálogo e Ingredientes:**
    * Descompone palabras compuestas o técnicas de ingredientes (*"polyphosphate"* $\to$ `["poly", "phosphate"]`, *"steamable"* $\to$ `["steam", "able"]`) conservando su raíz semántica.
 
@@ -69,9 +69,9 @@ La implementación permite parametrizar los siguientes hiperparámetros tanto de
 
 | Hiperparámetro | Tipo | Default | Descripción e Impacto |
 | :--- | :---: | :---: | :--- |
-| **`vocab_size`** | `int` | `2048` | Tamaño máximo del vocabulario final. Determina la cantidad de fusiones (*merges*) aprendidas. A mayor tamaño, secuencias más cortas pero mayor memoria en la capa de Embedding. Rango sugerido para ablación: `[1024, 2048, 4096]`. |
+| **`vocab_size`** | `int` | `2048` | Tamaño **máximo** del vocabulario final; es un techo, no un objetivo alcanzado. Con `min_frequency=2` el corpus **satura en 1.720 tokens**: no quedan pares de bytes que aparezcan al menos dos veces y el entrenamiento se detiene antes del techo. Subir este valor a 4.096 no cambia nada salvo que se baje `min_frequency` en paralelo — tenerlo en cuenta al diseñar la ablación. |
 | **`min_frequency`** | `int` | `2` | Frecuencia mínima que debe tener un par de bytes en el corpus de Train para calificar a una fusión (*merge*). Evita memorizar combinaciones raras o erróneas. |
-| **`max_length`** | `int` | `128` | Longitud máxima de secuencia (en tokens). Controla el límite de truncamiento y padding. En nuestro corpus de supermercado, 128 cubre holgadamente el 99% de las secuencias combinadas (`title + badge + description + ingredients`). |
+| **`max_length`** | `int` | `128` | Longitud máxima de secuencia (en tokens). Controla el límite de truncamiento y padding. Sobre la composición actual de 6 campos, las secuencias miden **52,5 tokens en promedio y 65 como máximo**, de modo que 128 no trunca ninguna fila de ningún split. Hay margen de sobra para incorporar más campos. |
 | **`special_tokens`** | `list[str]` | `["[PAD]", ...]` | Lista ordenada de tokens especiales asignados a los primeros IDs (`0, 1, 2, ...`). |
 | **`text_column`** | `str` | `"text"` | Nombre de la columna en el archivo CSV de datos que contiene la secuencia de texto unificada. |
 
@@ -114,15 +114,21 @@ tokenizer = ByteLevelBPETokenizer.from_file(
 )
 
 # 2. Tokenizar un único texto (inspección de tokens)
-texto = "Cedar House Steamable Pepperoni Pizza | Best Seller | Crispy crust | Flour, Yeast"
+texto = (
+    "Cedar House Steamable Pepperoni Pizza | Well Reviewed | "
+    "Steamable pepperoni pizza in a 10 oz package. Listed under frozen. | "
+    "Prepared ingredients, Spices, Salt | United States | Wheat"
+)
 encoding = tokenizer.encode(texto)
 print("Tokens:", encoding.tokens)
 print("IDs:", encoding.ids)
 
 # 3. Tokenización por Lotes (Batch) lista para PyTorch
 batch_textos = [
-    "Cedar House Steamable Pepperoni Pizza | Best Seller | Crispy crust | Flour, Yeast",
-    "Organic Whole Milk | Customer Favorite | Fresh dairy | Grade A Milk"
+    texto,
+    "Sunny Basket Ready To Heat Waffles | Customer Favorite | "
+    "Ready to heat waffles in a 6 ct package. Listed under frozen. | "
+    "Flour, Sugar, Eggs | Canada | Milk",
 ]
 
 batch = tokenizer.encode_batch(
@@ -200,3 +206,37 @@ dataloader = DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=get_col
 Para garantizar la validez metodológica del trabajo y respetar la consigna:
 * El vocabulario y las reglas de fusión de BPE se ajustan **estrictamente sobre el split de entrenamiento (`transformer_train.csv`)**.
 * Los splits de **Validación (`transformer_val.csv`)** y **Test (`transformer_test.csv`)** únicamente se codifican utilizando las reglas aprendidas en Train, simulando con precisión el comportamiento en inferencia real.
+
+---
+
+## 6. Reentrenamiento ante Cambios en la Composición del Texto
+
+El vocabulario BPE es **específico del corpus sobre el que se entrenó**. Si cambia la lista de
+campos que componen la columna `text` (`DEFAULT_TEXT_FIELDS` o el flag `--text_fields` de
+`build_transformer_dataset.py`), el tokenizador **debe reentrenarse**:
+
+```bash
+uv run python -m src.tokenizer.bpe --train_file resources/datasets/transformer_train.csv
+```
+
+No hacerlo no produce un error —el byte-level garantiza cobertura total y nunca emite `[UNK]`—
+pero degrada silenciosamente la representación: los valores nunca vistos se fragmentan en bytes
+sueltos en lugar de recibir tokens dedicados. Medición real al incorporar `country_of_origin` y
+`allergens` a la secuencia:
+
+| Valor | Vocabulario desactualizado | Reentrenado |
+| :--- | :---: | :---: |
+| `No Allergens` | 8 tokens | **3** |
+| `United States` | 6 tokens | **3** |
+| `Tree nuts` | 6 tokens | **3** |
+| `Shellfish` | 5 tokens | **3** |
+| **Longitud media de secuencia** | 58,81 | **52,46** (−10,8%) |
+
+El impacto de fondo no es el ahorro de cómputo sino la calidad de la representación: con el
+vocabulario viejo el modelo debía componer 8 fragmentos de bytes sin significado para recuperar
+el concepto "sin alérgenos", presente en el 44% de las filas de entrenamiento. Con el vocabulario
+reentrenado ese concepto es **un único token** al que la atención puede apuntar directamente.
+
+El entrenamiento es determinista: dos corridas sobre el mismo `transformer_train.csv` producen
+artefactos byte-idénticos, de modo que `bpe_tokenizer.json` es reproducible desde el pipeline
+versionado.
