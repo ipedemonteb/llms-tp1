@@ -1,28 +1,20 @@
-"""Implementación modular de la rama tabular para variables numéricas y categóricas.
+"""Implementación modular de la rama tabular para variables numéricas, directas y categóricas.
 
-Este módulo cubre las 13 variables de `clean_dataset.csv` que la rama de texto no procesa,
-más las dos que se incluyen de forma deliberadamente redundante (`allergens`,
-`country_of_origin`). Produce el vector denso `e_tab` que se fusiona con `e_text` del
-Transformer antes de la cabeza clasificadora.
+Distribución de features en la rama tabular:
+- Entity Embedding : brand, category, country_of_origin, allergens
+- One Hot          : storage_type, unit_of_measure, title_tag, day_of_week
+- Numéricas        : price, price_span, price_per_oz, net_weight_oz, volume, num_ingredients, nutrition_score
+                     (con log1p en price_per_oz, net_weight_oz, volume y estandarización z-score)
+- Directa          : has_allergens (passthrough 0/1 float)
 
 Componentes incluidos:
 - `TabularPreprocessor`: ajusta y aplica las transformaciones aprendidas de los datos
-  (log1p, estandarización z-score y vocabularios categóricos). Se ajusta ESTRICTAMENTE
-  sobre el split de entrenamiento y se serializa a JSON para garantizar reproducibilidad
-  y evitar data leakage, con el mismo criterio que el tokenizador BPE.
-- `TabularEncoder`: red que proyecta las variables preprocesadas a `e_tab`, con
-  codificación categórica conmutable ('onehot' o 'embedding') para el estudio de ablación.
+  (log1p, estandarización z-score, vocabularios categóricos y passthrough directo).
+  Se ajusta ESTRICTAMENTE sobre el split de entrenamiento y se serializa a JSON.
+- `TabularEncoder`: red que proyecta las variables preprocesadas a `e_tab` aplicando
+  Entity Embeddings a las variables designadas, One-Hot a las de baja cardinalidad,
+  normalización a las continuas y concatenando el valor directo antes de pasar por el MLP.
 - `TabularEncoderConfig`: dataclass de hiperparámetros.
-
-Justificación del preprocesamiento (medido sobre el dataset, ver `feature_planning.md`):
-- `log1p` en las variables muy asimétricas (`price_per_oz` skew 4.09, `volume` 2.97,
-  `net_weight_oz` 2.76). Reduce la asimetría de `volume` de 2.97 a 0.44, impidiendo que los
-  outliers dominen el gradiente.
-- Estandarización z-score en todas las numéricas, porque conviven escalas incomparables
-  (`volume` en cientos vs `num_ingredients` entre 1 y 5) y el optimizador usa un único
-  learning rate para todos los pesos.
-- One-hot en las categóricas: con cardinalidad máxima de 15, son solo 62 columnas y evita
-  imponer un orden falso entre categorías sin relación ordinal.
 """
 
 from __future__ import annotations
@@ -40,7 +32,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-# Variables numéricas continuas que no procesa la rama de texto
+# Variables numéricas continuas que reciben estandarización Z-score
 DEFAULT_NUMERIC_FIELDS: List[str] = [
     "price",
     "price_span",
@@ -51,54 +43,63 @@ DEFAULT_NUMERIC_FIELDS: List[str] = [
     "nutrition_score",
 ]
 
-# Subconjunto de las numéricas con asimetría > 1.5 que requiere compresión logarítmica
+# Subconjunto de las numéricas con asimetría que requiere compresión log1p previa
 DEFAULT_LOG1P_FIELDS: List[str] = [
     "price_per_oz",
     "net_weight_oz",
     "volume",
 ]
 
-# Variables categóricas. `allergens` y `country_of_origin` se incluyen pese a estar también
-# en la secuencia de texto: la redundancia entre modalidades es deliberada (el texto aporta
-# composicionalidad, el one-hot identidad atómica y barata de aprender).
-DEFAULT_CATEGORICAL_FIELDS: List[str] = [
-    "category",
-    "day_of_week",
-    "brand",
-    "unit_of_measure",
-    "storage_type",
+# Variables directas (passthrough numérico sin Z-score ni normalización)
+DEFAULT_DIRECT_FIELDS: List[str] = [
     "has_allergens",
-    "allergens",
-    "country_of_origin",
 ]
 
-# Índice reservado para categorías no vistas en entrenamiento
+# Variables categóricas que se procesan con Entity Embeddings
+DEFAULT_EMBEDDING_FIELDS: List[str] = [
+    "brand",
+    "category",
+    "country_of_origin",
+    "allergens",
+]
+
+# Variables categóricas que se procesan con One-Hot Encoding
+DEFAULT_ONEHOT_FIELDS: List[str] = [
+    "storage_type",
+    "unit_of_measure",
+    "title_tag",
+    "day_of_week",
+]
+
+# Todas las variables categóricas combinadas (embedding + one-hot)
+DEFAULT_CATEGORICAL_FIELDS: List[str] = DEFAULT_EMBEDDING_FIELDS + DEFAULT_ONEHOT_FIELDS
+
+# Índice reservado para categorías no vistas en entrenamiento (OOV)
 UNKNOWN_INDEX = 0
 
 
 class TabularPreprocessor:
-    """Ajusta y aplica el preprocesamiento de variables numéricas y categóricas.
+    """Ajusta y aplica el preprocesamiento de variables numéricas, directas y categóricas.
 
-    Aprende de los datos:
-    - Por cada numérica: la media y el desvío estándar (calculados DESPUÉS del log1p si
-      corresponde), para la estandarización z-score.
-    - Por cada categórica: el vocabulario ordenado de valores posibles.
-
-    Debe ajustarse únicamente sobre el split de entrenamiento. Val y test solo se transforman
-    con los parámetros ya aprendidos, replicando el comportamiento en inferencia real.
+    Aprende de los datos exclusivamente del split de entrenamiento:
+    - Por cada numérica: media y desvío estándar (calculados tras log1p si corresponde).
+    - Por cada categórica (embeddings y one-hot): vocabulario ordenado de valores únicos.
+    - Directas: se validan y se conservan en escala original.
     """
 
     def __init__(
         self,
         numeric_fields: Optional[List[str]] = None,
-        categorical_fields: Optional[List[str]] = None,
         log1p_fields: Optional[List[str]] = None,
+        direct_fields: Optional[List[str]] = None,
+        embedding_fields: Optional[List[str]] = None,
+        onehot_fields: Optional[List[str]] = None,
     ) -> None:
         self.numeric_fields = list(numeric_fields if numeric_fields is not None else DEFAULT_NUMERIC_FIELDS)
-        self.categorical_fields = list(
-            categorical_fields if categorical_fields is not None else DEFAULT_CATEGORICAL_FIELDS
-        )
         self.log1p_fields = list(log1p_fields if log1p_fields is not None else DEFAULT_LOG1P_FIELDS)
+        self.direct_fields = list(direct_fields if direct_fields is not None else DEFAULT_DIRECT_FIELDS)
+        self.embedding_fields = list(embedding_fields if embedding_fields is not None else DEFAULT_EMBEDDING_FIELDS)
+        self.onehot_fields = list(onehot_fields if onehot_fields is not None else DEFAULT_ONEHOT_FIELDS)
 
         desconocidos = [c for c in self.log1p_fields if c not in self.numeric_fields]
         if desconocidos:
@@ -108,7 +109,8 @@ class TabularPreprocessor:
 
         self.means: Dict[str, float] = {}
         self.stds: Dict[str, float] = {}
-        self.categories: Dict[str, List[str]] = {}
+        self.embedding_categories: Dict[str, List[str]] = {}
+        self.onehot_categories: Dict[str, List[str]] = {}
         self._fitted = False
 
     @property
@@ -117,9 +119,34 @@ class TabularPreprocessor:
         return self._fitted
 
     @property
+    def all_fields(self) -> List[str]:
+        """Lista de todos los campos requeridos en el DataFrame."""
+        return self.numeric_fields + self.direct_fields + self.embedding_fields + self.onehot_fields
+
+    @property
+    def categorical_fields(self) -> List[str]:
+        """Lista de todas las variables categóricas (embedding + one-hot)."""
+        return self.embedding_fields + self.onehot_fields
+
+    @property
+    def embedding_cardinalities(self) -> Dict[str, int]:
+        """Cardinalidad de las variables que van a Entity Embeddings."""
+        return {c: len(v) for c, v in self.embedding_categories.items()}
+
+    @property
+    def onehot_cardinalities(self) -> Dict[str, int]:
+        """Cardinalidad de las variables que van a One-Hot."""
+        return {c: len(v) for c, v in self.onehot_categories.items()}
+
+    @property
     def cardinalities(self) -> Dict[str, int]:
-        """Cantidad de valores distintos vistos en entrenamiento, por variable categórica."""
-        return {c: len(v) for c, v in self.categories.items()}
+        """Diccionario combinado de cardinalidades para todas las categóricas."""
+        return {**self.embedding_cardinalities, **self.onehot_cardinalities}
+
+    @property
+    def categories(self) -> Dict[str, List[str]]:
+        """Diccionario de vocabularios de todas las variables categóricas."""
+        return {**self.embedding_categories, **self.onehot_categories}
 
     def _apply_log1p(self, serie: pd.Series, columna: str) -> np.ndarray:
         """Aplica log1p si la columna está marcada como asimétrica."""
@@ -134,7 +161,7 @@ class TabularPreprocessor:
 
     def fit(self, df: pd.DataFrame) -> TabularPreprocessor:
         """Aprende medias, desvíos y vocabularios categóricos desde el split de entrenamiento."""
-        faltantes = [c for c in self.numeric_fields + self.categorical_fields if c not in df.columns]
+        faltantes = [c for c in self.all_fields if c not in df.columns]
         if faltantes:
             raise KeyError(f"Columnas ausentes en el DataFrame: {faltantes}")
 
@@ -142,47 +169,61 @@ class TabularPreprocessor:
             valores = self._apply_log1p(df[columna], columna)
             media = float(np.mean(valores))
             desvio = float(np.std(valores))
-            # Guarda contra columnas constantes: evita la división por cero
             self.means[columna] = media
             self.stds[columna] = desvio if desvio > 1e-8 else 1.0
 
-        for columna in self.categorical_fields:
+        for columna in self.embedding_fields:
             valores = sorted(df[columna].dropna().astype(str).unique().tolist())
-            self.categories[columna] = valores
+            self.embedding_categories[columna] = valores
+
+        for columna in self.onehot_fields:
+            valores = sorted(df[columna].dropna().astype(str).unique().tolist())
+            self.onehot_categories[columna] = valores
 
         self._fitted = True
         return self
 
     def transform(self, df: pd.DataFrame) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Transforma un DataFrame a los tensores que consume `TabularEncoder`.
+        """Transforma un DataFrame a los tensores requeridos por `TabularEncoder`.
 
         Returns:
             Tupla (x_num, x_cat):
-            - x_num: FloatTensor (B, n_numericas) con los valores estandarizados.
-            - x_cat: LongTensor (B, n_categoricas) con los índices de categoría.
-              El índice 0 queda reservado para valores no vistos en entrenamiento.
+            - x_num: FloatTensor (B, n_num + n_dir) con numéricas estandarizadas y directas.
+            - x_cat: LongTensor (B, n_emb + n_oh) con los índices categóricos (0 = unknown).
         """
         if not self._fitted:
             raise RuntimeError("El preprocesador no fue ajustado. Llamar a fit() sobre el split de train.")
 
+        # 1. Variables numéricas estandarizadas
         columnas_num = []
         for columna in self.numeric_fields:
             valores = self._apply_log1p(df[columna], columna)
             columnas_num.append((valores - self.means[columna]) / self.stds[columna])
+
+        # 2. Variables directas (passthrough en escala natural)
+        for columna in self.direct_fields:
+            columnas_num.append(df[columna].astype(float).to_numpy())
+
         x_num = torch.tensor(np.stack(columnas_num, axis=1), dtype=torch.float32)
 
+        # 3. Variables categóricas para Entity Embeddings
         columnas_cat = []
-        for columna in self.categorical_fields:
-            # Los índices arrancan en 1; el 0 se reserva para categorías desconocidas
-            mapeo = {valor: i + 1 for i, valor in enumerate(self.categories[columna])}
+        for columna in self.embedding_fields:
+            mapeo = {valor: i + 1 for i, valor in enumerate(self.embedding_categories[columna])}
             indices = df[columna].astype(str).map(mapeo).fillna(UNKNOWN_INDEX).astype(int)
             columnas_cat.append(indices.to_numpy())
-        x_cat = torch.tensor(np.stack(columnas_cat, axis=1), dtype=torch.long)
 
+        # 4. Variables categóricas para One-Hot
+        for columna in self.onehot_fields:
+            mapeo = {valor: i + 1 for i, valor in enumerate(self.onehot_categories[columna])}
+            indices = df[columna].astype(str).map(mapeo).fillna(UNKNOWN_INDEX).astype(int)
+            columnas_cat.append(indices.to_numpy())
+
+        x_cat = torch.tensor(np.stack(columnas_cat, axis=1), dtype=torch.long)
         return x_num, x_cat
 
     def fit_transform(self, df: pd.DataFrame) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Ajusta sobre `df` y devuelve su transformación. Usar SOLO con el split de train."""
+        """Ajusta sobre `df` y devuelve su transformación. Usar SOLO con train."""
         return self.fit(df).transform(df)
 
     def count_unknowns(self, df: pd.DataFrame) -> Dict[str, int]:
@@ -190,8 +231,11 @@ class TabularPreprocessor:
         if not self._fitted:
             raise RuntimeError("El preprocesador no fue ajustado.")
         resultado = {}
-        for columna in self.categorical_fields:
-            conocidos = set(self.categories[columna])
+        for columna in self.embedding_fields:
+            conocidos = set(self.embedding_categories[columna])
+            resultado[columna] = int((~df[columna].astype(str).isin(conocidos)).sum())
+        for columna in self.onehot_fields:
+            conocidos = set(self.onehot_categories[columna])
             resultado[columna] = int((~df[columna].astype(str).isin(conocidos)).sum())
         return resultado
 
@@ -202,13 +246,15 @@ class TabularPreprocessor:
         payload = {
             "numeric_fields": self.numeric_fields,
             "log1p_fields": self.log1p_fields,
-            "categorical_fields": self.categorical_fields,
+            "direct_fields": self.direct_fields,
+            "embedding_fields": self.embedding_fields,
+            "onehot_fields": self.onehot_fields,
             "means": self.means,
             "stds": self.stds,
-            "categories": self.categories,
+            "embedding_categories": self.embedding_categories,
+            "onehot_categories": self.onehot_categories,
         }
         destino.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"💾 Preprocesador tabular guardado en: {destino.resolve()}")
         return destino
 
     @classmethod
@@ -220,13 +266,16 @@ class TabularPreprocessor:
         payload = json.loads(origen.read_text(encoding="utf-8"))
 
         instancia = cls(
-            numeric_fields=payload["numeric_fields"],
-            categorical_fields=payload["categorical_fields"],
-            log1p_fields=payload["log1p_fields"],
+            numeric_fields=payload.get("numeric_fields", DEFAULT_NUMERIC_FIELDS),
+            log1p_fields=payload.get("log1p_fields", DEFAULT_LOG1P_FIELDS),
+            direct_fields=payload.get("direct_fields", DEFAULT_DIRECT_FIELDS),
+            embedding_fields=payload.get("embedding_fields", DEFAULT_EMBEDDING_FIELDS),
+            onehot_fields=payload.get("onehot_fields", DEFAULT_ONEHOT_FIELDS),
         )
         instancia.means = payload["means"]
         instancia.stds = payload["stds"]
-        instancia.categories = payload["categories"]
+        instancia.embedding_categories = payload.get("embedding_categories", {})
+        instancia.onehot_categories = payload.get("onehot_categories", {})
         instancia._fitted = True
         return instancia
 
@@ -236,12 +285,11 @@ class TabularEncoderConfig:
     """Configuración de hiperparámetros de la rama tabular.
 
     Atributos:
-        num_numeric: Cantidad de variables numéricas de entrada.
-        cardinalities: Valores distintos por variable categórica, en el mismo orden de columnas
-            que produce `TabularPreprocessor.transform`.
-        categorical_encoding: 'onehot' (baseline) o 'embedding' (entity embeddings, ablación).
-        embedding_dims: Dimensión por variable categórica cuando se usa 'embedding'. Si es None
-            se aplica la heurística min(50, ceil(cardinalidad / 2)).
+        num_numeric: Cantidad de variables numéricas con Z-score (default: 7).
+        num_direct: Cantidad de variables directas passthrough (default: 1, has_allergens).
+        embedding_cardinalities: Cardinalidades de las variables de Entity Embeddings.
+        embedding_dims: Dimensiones para cada embedding (si es None aplica min(50, ceil(card / 2))).
+        onehot_cardinalities: Cardinalidades de las variables One-Hot.
         hidden_dims: Dimensiones de las capas ocultas del MLP tabular.
         d_tab: Dimensión del vector de salida e_tab.
         dropout: Probabilidad de dropout en las capas ocultas.
@@ -249,10 +297,11 @@ class TabularEncoderConfig:
         use_batchnorm: Si True, aplica BatchNorm1d a las numéricas antes de concatenar.
     """
 
-    num_numeric: int
-    cardinalities: List[int]
-    categorical_encoding: str = "onehot"
+    num_numeric: int = 7
+    num_direct: int = 1
+    embedding_cardinalities: List[int] = field(default_factory=list)
     embedding_dims: Optional[List[int]] = None
+    onehot_cardinalities: List[int] = field(default_factory=list)
     hidden_dims: List[int] = field(default_factory=lambda: [64])
     d_tab: int = 32
     dropout: float = 0.1
@@ -260,71 +309,59 @@ class TabularEncoderConfig:
     use_batchnorm: bool = True
 
     def __post_init__(self) -> None:
-        valid_enc = {"onehot", "embedding"}
-        if self.categorical_encoding not in valid_enc:
-            raise ValueError(
-                f"categorical_encoding inválido '{self.categorical_encoding}'. Opciones: {valid_enc}"
-            )
         if self.activation.lower() not in {"gelu", "relu"}:
             raise ValueError(f"activation inválida '{self.activation}'. Opciones: gelu, relu")
-        if self.num_numeric < 0:
-            raise ValueError("num_numeric no puede ser negativo.")
+        if self.num_numeric < 0 or self.num_direct < 0:
+            raise ValueError("num_numeric y num_direct no pueden ser negativos.")
 
-        if self.categorical_encoding == "embedding":
-            if self.embedding_dims is None:
-                # Heurística estándar para entity embeddings
-                self.embedding_dims = [min(50, math.ceil(c / 2)) for c in self.cardinalities]
-            elif len(self.embedding_dims) != len(self.cardinalities):
-                raise ValueError(
-                    f"embedding_dims ({len(self.embedding_dims)}) debe tener un valor por cada "
-                    f"variable categórica ({len(self.cardinalities)})."
-                )
+        if self.embedding_dims is None:
+            self.embedding_dims = [min(50, math.ceil(c / 2)) for c in self.embedding_cardinalities]
+        elif len(self.embedding_dims) != len(self.embedding_cardinalities):
+            raise ValueError(
+                f"embedding_dims ({len(self.embedding_dims)}) debe coincidir con embedding_cardinalities ({len(self.embedding_cardinalities)})."
+            )
 
     @property
-    def categorical_output_dim(self) -> int:
-        """Dimensión del bloque categórico tras la codificación."""
-        if self.categorical_encoding == "onehot":
-            return sum(self.cardinalities)
+    def embedding_output_dim(self) -> int:
+        """Dimensión total del bloque de embeddings concatenados."""
         return sum(self.embedding_dims or [])
 
     @property
+    def onehot_output_dim(self) -> int:
+        """Dimensión total del bloque One-Hot."""
+        return sum(self.onehot_cardinalities or [])
+
+    @property
     def input_dim(self) -> int:
-        """Dimensión total de entrada al MLP tabular."""
-        return self.num_numeric + self.categorical_output_dim
+        """Dimensión total que ingresa a la primera capa del MLP tabular."""
+        return self.num_numeric + self.num_direct + self.embedding_output_dim + self.onehot_output_dim
 
 
 class TabularEncoder(nn.Module):
-    """Codificador de variables numéricas y categóricas hacia el vector denso `e_tab`.
+    """Codificador tabular hacia el vector denso `e_tab`.
 
-    Flujo de ejecución:
-    1. Numéricas (ya estandarizadas por el preprocesador) -> BatchNorm1d opcional.
-    2. Categóricas -> one-hot o entity embeddings, según configuración.
-    3. Concatenación de ambos bloques.
-    4. MLP con activación, BatchNorm y Dropout -> e_tab (B, d_tab).
+    Flujo:
+    1. Numéricas Z-score -> BatchNorm1d opcional.
+    2. Directas -> passthrough.
+    3. Categóricas Embedding -> nn.Embedding por variable -> concatenación.
+    4. Categóricas One-Hot -> F.one_hot por variable -> concatenación.
+    5. Concatenación total -> MLP -> e_tab (B, d_tab).
     """
 
     def __init__(self, config: TabularEncoderConfig) -> None:
         super().__init__()
         self.config = config
 
-        # 1. Normalización de las numéricas. Redundante con el z-score del preprocesador, pero
-        # estabiliza las activaciones a lo largo del entrenamiento (batch statistics).
         if config.use_batchnorm and config.num_numeric > 0:
             self.numeric_norm: nn.Module = nn.BatchNorm1d(config.num_numeric)
         else:
             self.numeric_norm = nn.Identity()
 
-        # 2. Embeddings por variable categórica (solo en modo 'embedding').
-        # +1 en num_embeddings para reservar el índice 0 a categorías desconocidas.
-        if config.categorical_encoding == "embedding":
-            self.embeddings = nn.ModuleList([
-                nn.Embedding(card + 1, dim, padding_idx=UNKNOWN_INDEX)
-                for card, dim in zip(config.cardinalities, config.embedding_dims or [])
-            ])
-        else:
-            self.embeddings = nn.ModuleList()
+        self.embeddings = nn.ModuleList([
+            nn.Embedding(card + 1, dim, padding_idx=UNKNOWN_INDEX)
+            for card, dim in zip(config.embedding_cardinalities, config.embedding_dims or [])
+        ])
 
-        # 3. MLP tabular
         act = nn.GELU() if config.activation.lower() == "gelu" else nn.ReLU()
         capas: List[nn.Module] = []
         dim_previa = config.input_dim
@@ -341,7 +378,6 @@ class TabularEncoder(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        """Inicialización Xavier en capas lineales y normal acotada en embeddings."""
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
@@ -353,47 +389,41 @@ class TabularEncoder(nn.Module):
                     with torch.no_grad():
                         module.weight[module.padding_idx].fill_(0.0)
 
-    def encode_categorical(self, x_cat: torch.Tensor) -> torch.Tensor:
-        """Codifica los índices categóricos según el modo configurado.
-
-        Args:
-            x_cat: LongTensor (B, n_categoricas) con índices; 0 = categoría desconocida.
-
-        Returns:
-            FloatTensor (B, categorical_output_dim).
-        """
-        if x_cat.numel() == 0 or len(self.config.cardinalities) == 0:
-            return x_cat.new_zeros((x_cat.shape[0], 0), dtype=torch.float32)
-
-        if self.config.categorical_encoding == "embedding":
-            vectores = [emb(x_cat[:, i]) for i, emb in enumerate(self.embeddings)]
-            return torch.cat(vectores, dim=1)
-
-        # One-hot: se genera con cardinalidad+1 y se descarta la columna 0, de modo que una
-        # categoría desconocida quede representada como un vector de ceros (equivalente al
-        # handle_unknown='ignore' de scikit-learn) sin gastar una columna muerta.
-        bloques = []
-        for i, card in enumerate(self.config.cardinalities):
-            oh = F.one_hot(x_cat[:, i], num_classes=card + 1)[:, 1:]
-            bloques.append(oh.float())
-        return torch.cat(bloques, dim=1)
-
     def forward(self, x_num: torch.Tensor, x_cat: torch.Tensor) -> torch.Tensor:
         """Proyecta las variables tabulares al vector e_tab.
 
         Args:
-            x_num: FloatTensor (B, n_numericas) ya estandarizado por `TabularPreprocessor`.
-            x_cat: LongTensor (B, n_categoricas) con índices de categoría.
+            x_num: FloatTensor (B, n_num + n_dir).
+            x_cat: LongTensor (B, n_emb + n_oh).
 
         Returns:
             FloatTensor (B, d_tab).
         """
         partes = []
+
+        # 1. Numéricas Z-score
         if self.config.num_numeric > 0:
-            partes.append(self.numeric_norm(x_num))
-        cat_encoded = self.encode_categorical(x_cat)
-        if cat_encoded.shape[1] > 0:
-            partes.append(cat_encoded)
+            partes.append(self.numeric_norm(x_num[:, :self.config.num_numeric]))
+
+        # 2. Directas (passthrough)
+        if self.config.num_direct > 0:
+            partes.append(x_num[:, self.config.num_numeric:])
+
+        # 3. Entity Embeddings
+        n_emb = len(self.config.embedding_cardinalities)
+        if n_emb > 0:
+            emb_vectors = [self.embeddings[i](x_cat[:, i]) for i in range(n_emb)]
+            partes.append(torch.cat(emb_vectors, dim=1))
+
+        # 4. One-Hot
+        n_oh = len(self.config.onehot_cardinalities)
+        if n_oh > 0:
+            oh_blocks = []
+            for j, card in enumerate(self.config.onehot_cardinalities):
+                col_idx = n_emb + j
+                oh = F.one_hot(x_cat[:, col_idx], num_classes=card + 1)[:, 1:]
+                oh_blocks.append(oh.float())
+            partes.append(torch.cat(oh_blocks, dim=1))
 
         x = torch.cat(partes, dim=1)
         return self.mlp(x)
@@ -424,72 +454,56 @@ def run_smoke_tests() -> None:
     x_num_tr, x_cat_tr = pre.fit_transform(df_train)
     x_num_va, x_cat_va = pre.transform(df_val)
 
-    print(f"\n📊 Variables: {len(pre.numeric_fields)} numéricas, {len(pre.categorical_fields)} categóricas")
+    print(f"\n📊 Variables: {len(pre.numeric_fields)} numéricas, {len(pre.direct_fields)} directas, "
+          f"{len(pre.embedding_fields)} embedding, {len(pre.onehot_fields)} one-hot")
     print(f"   log1p aplicado a: {pre.log1p_fields}")
     print(f"   x_num train {tuple(x_num_tr.shape)} | x_cat train {tuple(x_cat_tr.shape)}")
     print(f"   x_num val   {tuple(x_num_va.shape)} | x_cat val   {tuple(x_cat_va.shape)}")
 
-    # 2. Verificar la estandarización sobre train
-    medias = x_num_tr.mean(dim=0)
-    desvios = x_num_tr.std(dim=0)
+    # 2. Verificar la estandarización sobre las numéricas de train
+    n_num = len(pre.numeric_fields)
+    medias = x_num_tr[:, :n_num].mean(dim=0)
+    desvios = x_num_tr[:, :n_num].std(dim=0)
     assert torch.allclose(medias, torch.zeros_like(medias), atol=1e-5), "Las medias de train no son 0."
     assert torch.allclose(desvios, torch.ones_like(desvios), atol=1e-2), "Los desvíos de train no son 1."
-    print(f"\n✅ [1/6] Estandarización correcta en train (media≈{medias.abs().max():.2e}, desvío≈{desvios.mean():.4f})")
+    print(f"\n✅ [1/5] Estandarización correcta en numéricas de train (media≈{medias.abs().max():.2e})")
 
-    # 3. Val NO debe estar perfectamente estandarizado: usa los parámetros de train
-    print(f"✅ [2/6] Val transformado con parámetros de train "
-          f"(media={x_num_va.mean():.4f}, desvío={x_num_va.std():.4f}) — desvío de 0/1 esperado")
+    # 3. Directas en escala 0/1
+    assert torch.all((x_num_tr[:, n_num:] == 0.0) | (x_num_tr[:, n_num:] == 1.0))
+    print("✅ [2/5] Variable directa has_allergens preservada como 0/1.")
 
-    # 4. Cardinalidades y categorías desconocidas
-    cards = [pre.cardinalities[c] for c in pre.categorical_fields]
-    desconocidas = pre.count_unknowns(df_val)
-    total_desc = sum(desconocidas.values())
-    print(f"✅ [3/6] Cardinalidades: {dict(zip(pre.categorical_fields, cards))}")
-    print(f"         Categorías no vistas en val: {total_desc} "
-          f"({'ninguna, conjunto cerrado' if total_desc == 0 else desconocidas})")
-
-    # 5. Forward en modo one-hot
-    cfg_oh = TabularEncoderConfig(num_numeric=len(pre.numeric_fields), cardinalities=cards)
-    enc_oh = TabularEncoder(cfg_oh)
-    enc_oh.eval()
-    with torch.no_grad():
-        e_tab_oh = enc_oh(x_num_tr[:8], x_cat_tr[:8])
-    assert e_tab_oh.shape == (8, cfg_oh.d_tab)
-    print(f"✅ [4/6] Forward 'onehot': entrada {cfg_oh.input_dim} dims "
-          f"({cfg_oh.num_numeric} num + {cfg_oh.categorical_output_dim} one-hot) "
-          f"-> e_tab {tuple(e_tab_oh.shape)} | {enc_oh.get_num_params():,} params")
-
-    # 6. Forward en modo embedding
-    cfg_emb = TabularEncoderConfig(
-        num_numeric=len(pre.numeric_fields), cardinalities=cards, categorical_encoding="embedding"
+    # 4. Forward del TabularEncoder
+    cfg = TabularEncoderConfig(
+        num_numeric=len(pre.numeric_fields),
+        num_direct=len(pre.direct_fields),
+        embedding_cardinalities=[pre.embedding_cardinalities[c] for c in pre.embedding_fields],
+        onehot_cardinalities=[pre.onehot_cardinalities[c] for c in pre.onehot_fields],
     )
-    enc_emb = TabularEncoder(cfg_emb)
-    enc_emb.eval()
+    enc = TabularEncoder(cfg)
+    enc.eval()
     with torch.no_grad():
-        e_tab_emb = enc_emb(x_num_tr[:8], x_cat_tr[:8])
-    assert e_tab_emb.shape == (8, cfg_emb.d_tab)
-    print(f"✅ [5/6] Forward 'embedding': dims por variable {cfg_emb.embedding_dims} "
-          f"-> entrada {cfg_emb.input_dim} dims -> e_tab {tuple(e_tab_emb.shape)} "
-          f"| {enc_emb.get_num_params():,} params")
+        e_tab = enc(x_num_tr[:8], x_cat_tr[:8])
+    assert e_tab.shape == (8, cfg.d_tab)
+    print(f"✅ [3/5] Forward TabularEncoder: entrada {cfg.input_dim} dims -> e_tab {tuple(e_tab.shape)} | {enc.get_num_params():,} params")
 
-    # 7. Backward
-    enc_oh.train()
-    salida = enc_oh(x_num_tr[:32], x_cat_tr[:32])
+    # 5. Backward pass
+    enc.train()
+    salida = enc(x_num_tr[:32], x_cat_tr[:32])
     salida.sum().backward()
     sin_nan = all(
         p.grad is not None and not torch.isnan(p.grad).any()
-        for p in enc_oh.parameters() if p.requires_grad
+        for p in enc.parameters() if p.requires_grad
     )
     assert sin_nan, "Falló el flujo de gradientes."
-    print("✅ [6/6] Backward pass verificado sin NaN.")
+    print("✅ [4/5] Backward pass verificado sin NaN.")
 
-    # 8. Round-trip del artefacto serializado
+    # 6. Round-trip del artefacto JSON
     tmp = Path("resources/preprocessor/tabular_preprocessor.json")
     pre.save(tmp)
     pre2 = TabularPreprocessor.from_file(tmp)
     x_num2, x_cat2 = pre2.transform(df_val)
     assert torch.allclose(x_num_va, x_num2) and torch.equal(x_cat_va, x_cat2)
-    print(f"✅ Round-trip del artefacto JSON verificado: transformaciones idénticas.")
+    print(f"✅ [5/5] Round-trip del artefacto JSON verificado.")
 
     print("\n🎉 TODOS LOS SMOKE TESTS PASARON EXITOSAMENTE.")
     print("=" * 78 + "\n")
@@ -497,3 +511,4 @@ def run_smoke_tests() -> None:
 
 if __name__ == "__main__":
     run_smoke_tests()
+

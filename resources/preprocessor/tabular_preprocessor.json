@@ -13,15 +13,20 @@
     "net_weight_oz",
     "volume"
   ],
-  "categorical_fields": [
-    "category",
-    "day_of_week",
+  "direct_fields": [
+    "has_allergens"
+  ],
+  "embedding_fields": [
     "brand",
-    "unit_of_measure",
+    "category",
+    "country_of_origin",
+    "allergens"
+  ],
+  "onehot_fields": [
     "storage_type",
-    "has_allergens",
-    "allergens",
-    "country_of_origin"
+    "unit_of_measure",
+    "title_tag",
+    "day_of_week"
   ],
   "means": {
     "price": 8.55405,
@@ -41,30 +46,7 @@
     "num_ingredients": 1.2968784422132829,
     "nutrition_score": 26.07389113653733
   },
-  "categories": {
-    "category": [
-      "Baby",
-      "Bakery",
-      "Beverages",
-      "Dairy",
-      "Frozen",
-      "Household",
-      "Meat",
-      "Pantry",
-      "Personal Care",
-      "Produce",
-      "Seafood",
-      "Snacks"
-    ],
-    "day_of_week": [
-      "Friday",
-      "Monday",
-      "Saturday",
-      "Sunday",
-      "Thursday",
-      "Tuesday",
-      "Wednesday"
-    ],
+  "embedding_categories": {
     "brand": [
       "Blue Cart",
       "Cedar House",
@@ -82,31 +64,19 @@
       "Sunny Basket",
       "Valley Select"
     ],
-    "unit_of_measure": [
-      "ct",
-      "fl oz",
-      "gal",
-      "lb",
-      "oz"
-    ],
-    "storage_type": [
-      "Ambient",
+    "category": [
+      "Baby",
+      "Bakery",
+      "Beverages",
+      "Dairy",
       "Frozen",
-      "Refrigerated"
-    ],
-    "has_allergens": [
-      "0",
-      "1"
-    ],
-    "allergens": [
-      "Fish",
-      "Milk",
-      "No Allergens",
-      "Peanuts",
-      "Shellfish",
-      "Soy",
-      "Tree nuts",
-      "Wheat"
+      "Household",
+      "Meat",
+      "Pantry",
+      "Personal Care",
+      "Produce",
+      "Seafood",
+      "Snacks"
     ],
     "country_of_origin": [
       "Canada",
@@ -119,6 +89,61 @@
       "Thailand",
       "United States",
       "Vietnam"
+    ],
+    "allergens": [
+      "Fish",
+      "Milk",
+      "No Allergens",
+      "Peanuts",
+      "Shellfish",
+      "Soy",
+      "Tree nuts",
+      "Wheat"
+    ]
+  },
+  "onehot_categories": {
+    "storage_type": [
+      "Ambient",
+      "Frozen",
+      "Refrigerated"
+    ],
+    "unit_of_measure": [
+      "ct",
+      "fl oz",
+      "gal",
+      "lb",
+      "oz"
+    ],
+    "title_tag": [
+      "#1 Pick",
+      "Best Seller",
+      "Clearance Listing",
+      "Current Stock",
+      "Customer Favorite",
+      "Discontinuing Soon",
+      "Highly Rated",
+      "Limited Feedback",
+      "Low Feedback",
+      "New Listing",
+      "No Tag",
+      "Popular Choice",
+      "Rarely Reordered",
+      "Recently Added",
+      "Regular Listing",
+      "Shopper Favorite",
+      "Standard Listing",
+      "Top Rated",
+      "Unrated Listing",
+      "Well Reviewed"
+    ],
+    "day_of_week": [
+      "Friday",
+      "Monday",
+      "Saturday",
+      "Sunday",
+      "Thursday",
+      "Tuesday",
+      "Wednesday"
     ]
   }
 }

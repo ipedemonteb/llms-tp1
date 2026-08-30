@@ -98,13 +98,8 @@ def cargar_predicciones(run_dir: Path) -> Tuple[np.ndarray, np.ndarray]:
 
     resumen = cargar_resumen(run_dir)
     args = argparse.Namespace(**resumen["args"])
-
-    campos = args.text_fields
-    if isinstance(campos, str):
-        campos = [c.strip() for c in campos.split(",") if c.strip()]
-
     loaders, artefactos = build_dataloaders(
-        text_fields=campos, max_length=args.max_length, batch_size=args.batch_size,
+        max_length=args.max_length, batch_size=args.batch_size,
         use_text=args.use_text, use_tabular=args.use_tabular, preprocessor_path=None,
     )
     modelo = build_model(args, artefactos)

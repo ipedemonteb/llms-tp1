@@ -83,7 +83,7 @@ def test_build_dataloaders_no_filtra_informacion_entre_splits():
     assert set(loaders) == {"train", "val", "test"}
     assert art["sizes"]["train"] == 7000
 
-    val_x_num = loaders["val"].dataset.x_num
+    val_x_num = loaders["val"].dataset.x_num[:, :art["num_numeric"]]
     assert not torch.allclose(val_x_num.mean(dim=0), torch.zeros(val_x_num.shape[1]), atol=1e-6)
 
 
@@ -97,11 +97,16 @@ def test_los_splits_no_se_solapan():
 
 # --- Loop de entrenamiento ---
 
-def _modelo_chico(cards, num_numeric):
+def _modelo_chico(pre):
     return BTRModel(
         text_encoder=None,
         tabular_encoder=TabularEncoder(TabularEncoderConfig(
-            num_numeric=num_numeric, cardinalities=cards, d_tab=16, dropout=0.0,
+            num_numeric=len(pre.numeric_fields),
+            num_direct=len(pre.direct_fields),
+            embedding_cardinalities=[pre.embedding_cardinalities[c] for c in pre.embedding_fields],
+            onehot_cardinalities=[pre.onehot_cardinalities[c] for c in pre.onehot_fields],
+            d_tab=16,
+            dropout=0.0,
         )),
         fusion_config=FusionConfig(dropout=0.0),
     )
@@ -115,7 +120,7 @@ def test_el_modelo_puede_sobreajustar_un_lote_chico(df_sintetico):
     ds = SupermarketDataset(df, preprocessor=pre)
     loader = DataLoader(ds, batch_size=32, shuffle=False)
 
-    modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+    modelo = _modelo_chico(pre)
     trainer = Trainer(modelo, TrainerConfig(epochs=150, lr=0.05, weight_decay=0.0,
                                             patience=None, verbose=False, device="cpu"))
     loss_inicial = trainer.evaluate(loader, prefix="x_")["x_loss"]
@@ -131,7 +136,7 @@ def test_early_stopping_corta_antes_del_maximo(df_sintetico):
     pre = TabularPreprocessor().fit(df_sintetico)
     ds = SupermarketDataset(df_sintetico, preprocessor=pre)
     loader = DataLoader(ds, batch_size=16)
-    modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+    modelo = _modelo_chico(pre)
     trainer = Trainer(modelo, TrainerConfig(epochs=50, patience=2, verbose=False, device="cpu"))
     historial = trainer.fit(loader, loader)
     assert len(historial) < 50
@@ -142,7 +147,7 @@ def test_se_restaura_el_mejor_checkpoint(df_sintetico):
     pre = TabularPreprocessor().fit(df_sintetico)
     ds = SupermarketDataset(df_sintetico, preprocessor=pre)
     loader = DataLoader(ds, batch_size=16)
-    modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+    modelo = _modelo_chico(pre)
     trainer = Trainer(modelo, TrainerConfig(epochs=6, patience=None, verbose=False, device="cpu"))
     trainer.fit(loader, loader)
 
@@ -156,7 +161,7 @@ def test_el_historial_registra_una_entrada_por_epoca(df_sintetico):
     pre = TabularPreprocessor().fit(df_sintetico)
     ds = SupermarketDataset(df_sintetico, preprocessor=pre)
     loader = DataLoader(ds, batch_size=16)
-    modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+    modelo = _modelo_chico(pre)
     trainer = Trainer(modelo, TrainerConfig(epochs=3, patience=None, verbose=False, device="cpu"))
     historial = trainer.fit(loader, loader)
     assert len(historial) == 3
@@ -168,7 +173,7 @@ def test_evaluate_no_modifica_los_pesos(df_sintetico):
     pre = TabularPreprocessor().fit(df_sintetico)
     ds = SupermarketDataset(df_sintetico, preprocessor=pre)
     loader = DataLoader(ds, batch_size=16)
-    modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+    modelo = _modelo_chico(pre)
     trainer = Trainer(modelo, TrainerConfig(verbose=False, device="cpu"))
     antes = [p.clone() for p in modelo.parameters()]
     trainer.evaluate(loader)
@@ -181,7 +186,7 @@ def test_misma_semilla_produce_el_mismo_resultado(df_sintetico):
         pre = TabularPreprocessor().fit(df_sintetico)
         ds = SupermarketDataset(df_sintetico, preprocessor=pre)
         loader = DataLoader(ds, batch_size=16, shuffle=False)
-        modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+        modelo = _modelo_chico(pre)
         trainer = Trainer(modelo, TrainerConfig(epochs=2, patience=None, verbose=False,
                                                 device="cpu", seed=123))
         return trainer.fit(loader, loader)[-1]["val_loss"]
@@ -193,7 +198,7 @@ def test_predict_devuelve_logits_y_labels_alineados(df_sintetico):
     pre = TabularPreprocessor().fit(df_sintetico)
     ds = SupermarketDataset(df_sintetico, preprocessor=pre)
     loader = DataLoader(ds, batch_size=16, shuffle=False)
-    modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+    modelo = _modelo_chico(pre)
     trainer = Trainer(modelo, TrainerConfig(verbose=False, device="cpu"))
     logits, labels = trainer.predict(loader)
     assert logits.shape == labels.shape == (len(ds),)
@@ -204,7 +209,7 @@ def test_checkpoint_se_guarda_con_historial(df_sintetico, tmp_path):
     pre = TabularPreprocessor().fit(df_sintetico)
     ds = SupermarketDataset(df_sintetico, preprocessor=pre)
     loader = DataLoader(ds, batch_size=16)
-    modelo = _modelo_chico([pre.cardinalities[c] for c in pre.categorical_fields], len(pre.numeric_fields))
+    modelo = _modelo_chico(pre)
     trainer = Trainer(modelo, TrainerConfig(epochs=2, patience=None, verbose=False, device="cpu"))
     trainer.fit(loader, loader)
 

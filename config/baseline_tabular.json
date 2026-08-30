@@ -3,7 +3,6 @@
   "use_text": false,
   "use_tabular": true,
   "d_tab": 32,
-  "cat_encoding": "onehot",
   "epochs": 30,
   "lr": 0.001,
   "weight_decay": 0.01,

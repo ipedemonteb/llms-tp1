@@ -9,7 +9,6 @@
   "num_layers": 2,
   "pos_encoding": "sinusoidal",
   "d_tab": 32,
-  "cat_encoding": "onehot",
   "epochs": 20,
   "lr": 0.001,
   "weight_decay": 0.01,

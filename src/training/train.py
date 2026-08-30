@@ -62,8 +62,9 @@ def build_model(args, artefactos) -> BTRModel:
     if args.use_tabular:
         tabular_encoder = TabularEncoder(TabularEncoderConfig(
             num_numeric=artefactos["num_numeric"],
-            cardinalities=artefactos["cardinalities"],
-            categorical_encoding=args.cat_encoding,
+            num_direct=artefactos["num_direct"],
+            embedding_cardinalities=artefactos["embedding_cardinalities"],
+            onehot_cardinalities=artefactos["onehot_cardinalities"],
             d_tab=args.d_tab,
             dropout=args.dropout,
         ))
@@ -109,8 +110,6 @@ def build_parser() -> argparse.ArgumentParser:
     # Datos
     parser.add_argument("--data_dir", type=str, default="resources/datasets")
     parser.add_argument("--tokenizer_path", type=str, default="resources/tokenizer/bpe_tokenizer.json")
-    parser.add_argument("--text_fields", type=str, default=None,
-                        help="Lista separada por comas de los campos de texto. Por defecto usa DEFAULT_TEXT_FIELDS.")
     parser.add_argument("--max_length", type=int, default=128)
     parser.add_argument("--batch_size", type=int, default=64)
 
@@ -130,7 +129,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Rama tabular y fusión
     parser.add_argument("--d_tab", type=int, default=32)
-    parser.add_argument("--cat_encoding", type=str, default="onehot", choices=["onehot", "embedding"])
     parser.add_argument("--fusion", type=str, default="late", choices=["late", "cross"])
 
     # Entrenamiento
@@ -159,11 +157,6 @@ def main(argv: Optional[list] = None) -> dict:
 
     set_seed(args.seed)
 
-    # `text_fields` se acepta como lista en el JSON o como string separado por comas en la CLI
-    text_fields = args.text_fields
-    if isinstance(text_fields, str):
-        text_fields = [c.strip() for c in text_fields.split(",") if c.strip()]
-
     print("=" * 88)
     print(f"  ENTRENAMIENTO DE BTR — run: {args.run_name}")
     if args.config:
@@ -173,7 +166,6 @@ def main(argv: Optional[list] = None) -> dict:
     loaders, artefactos = build_dataloaders(
         data_dir=args.data_dir,
         tokenizer_path=args.tokenizer_path,
-        text_fields=text_fields,
         max_length=args.max_length,
         batch_size=args.batch_size,
         use_text=args.use_text,

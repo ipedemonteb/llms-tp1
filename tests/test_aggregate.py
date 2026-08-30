@@ -31,9 +31,9 @@ from src.training.aggregate import (
 ARGS_BASE = {
     "config": "late_fusion", "seed": 42, "use_text": True, "use_tabular": True,
     "fusion": "late", "d_model": 64, "n_heads": 4, "d_ff": 256, "num_layers": 2,
-    "pooling": "mean", "pos_encoding": "sinusoidal", "d_tab": 32, "cat_encoding": "onehot",
+    "pooling": "mean", "pos_encoding": "sinusoidal", "d_tab": 32,
     "epochs": 20, "patience": 5, "dropout": 0.1, "lr": 0.001, "weight_decay": 0.01,
-    "batch_size": 64, "max_length": 128, "text_fields": None,
+    "batch_size": 64, "max_length": 128,
 }
 
 

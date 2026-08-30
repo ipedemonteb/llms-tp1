@@ -222,12 +222,7 @@ def test_booleanos_de_la_config_se_aplican(tmp_path):
     assert args.use_tabular is False and args.use_text is True
 
 
-def test_text_fields_acepta_lista_en_json(tmp_path):
-    campos = ["title_clean", "description"]
-    (tmp_path / "c.json").write_text(json.dumps({"text_fields": campos}))
-    argv = ["--config", "c"]
-    args = apply_config(build_parser().parse_args(argv), build_parser, argv, tmp_path)
-    assert args.text_fields == campos
+
 
 
 # --- Configuraciones del repositorio ---

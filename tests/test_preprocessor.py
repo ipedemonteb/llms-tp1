@@ -22,8 +22,9 @@ from src.hybrid_transformer.tabular_encoder import (
 def test_estandarizacion_deja_media_cero_y_desvio_uno(df_sintetico):
     pre = TabularPreprocessor()
     x_num, _ = pre.fit_transform(df_sintetico)
-    assert torch.allclose(x_num.mean(dim=0), torch.zeros(x_num.shape[1]), atol=1e-5)
-    assert torch.allclose(x_num.std(dim=0), torch.ones(x_num.shape[1]), atol=1e-2)
+    n_num = len(pre.numeric_fields)
+    assert torch.allclose(x_num[:, :n_num].mean(dim=0), torch.zeros(n_num), atol=1e-5)
+    assert torch.allclose(x_num[:, :n_num].std(dim=0), torch.ones(n_num), atol=1e-2)
 
 
 def test_log1p_se_aplica_solo_a_los_campos_marcados(df_sintetico):
@@ -117,7 +118,8 @@ def test_artefacto_es_json_legible(df_sintetico, tmp_path):
     TabularPreprocessor().fit(df_sintetico).save(ruta)
     payload = json.loads(ruta.read_text())
     assert set(payload) == {
-        "numeric_fields", "log1p_fields", "categorical_fields", "means", "stds", "categories"
+        "numeric_fields", "log1p_fields", "direct_fields", "embedding_fields",
+        "onehot_fields", "means", "stds", "embedding_categories", "onehot_categories"
     }
 
 

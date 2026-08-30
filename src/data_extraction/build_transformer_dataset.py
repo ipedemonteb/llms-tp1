@@ -45,14 +45,11 @@ from typing import List, Tuple
 import pandas as pd
 
 
-# Campos que componen la secuencia de texto por defecto (en este orden)
+# Campos que componen la secuencia de texto fija para el Transformer
 DEFAULT_TEXT_FIELDS: List[str] = [
     "title_clean",
-    "badge",
     "description",
     "ingredients",
-    "country_of_origin",
-    "allergens",
 ]
 
 # Valor de relleno para nulos, por campo. Se usa un centinela explícito en vez de string
@@ -276,15 +273,6 @@ def main():
         help="Carpeta de destino para los archivos CSV generados (por defecto: resources/datasets)."
     )
     parser.add_argument(
-        "--text_fields",
-        type=str,
-        default=",".join(DEFAULT_TEXT_FIELDS),
-        help=(
-            "Lista separada por comas de los campos que componen la secuencia de texto, en orden. "
-            f"Por defecto: {','.join(DEFAULT_TEXT_FIELDS)}"
-        )
-    )
-    parser.add_argument(
         "--separator",
         type=str,
         default=" | ",
@@ -305,15 +293,11 @@ def main():
         else:
             raise FileNotFoundError(f"No se encontró el dataset en {in_path} ni en {fallback}")
 
-    text_fields = [c.strip() for c in args.text_fields.split(",") if c.strip()]
-    if not text_fields:
-        raise ValueError("--text_fields no puede quedar vacío.")
-
     out_dir = Path(args.output_dir)
 
     df_prepared = load_and_preprocess(
         input_path=in_path,
-        text_fields=text_fields,
+        text_fields=DEFAULT_TEXT_FIELDS,
         separator=args.separator
     )
     split_and_save(

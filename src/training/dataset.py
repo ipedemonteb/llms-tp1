@@ -162,6 +162,15 @@ def build_dataloaders(
         "vocab_size": tokenizer.vocab_size if tokenizer is not None else 0,
         "pad_token_id": tokenizer.pad_token_id if tokenizer is not None else 0,
         "num_numeric": len(preprocessor.numeric_fields) if preprocessor is not None else 0,
+        "num_direct": len(preprocessor.direct_fields) if preprocessor is not None else 0,
+        "embedding_cardinalities": (
+            [preprocessor.embedding_cardinalities[c] for c in preprocessor.embedding_fields]
+            if preprocessor is not None else []
+        ),
+        "onehot_cardinalities": (
+            [preprocessor.onehot_cardinalities[c] for c in preprocessor.onehot_fields]
+            if preprocessor is not None else []
+        ),
         "cardinalities": (
             [preprocessor.cardinalities[c] for c in preprocessor.categorical_fields]
             if preprocessor is not None else []

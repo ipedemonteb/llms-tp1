@@ -28,6 +28,7 @@ def df_sintetico() -> pd.DataFrame:
     return pd.DataFrame({
         "title_clean": [f"Marca{i % 3} Producto {i}" for i in range(n)],
         "badge": rng.choice(["Best Seller", "No Tag"], n),
+        "title_tag": rng.choice(["Best Seller", "No Tag"], n),
         "description": [f"Descripción del producto {i}." for i in range(n)],
         "ingredients": rng.choice(["Harina, Sal", "Agua"], n),
         "country_of_origin": rng.choice(["Chile", "Peru"], n),

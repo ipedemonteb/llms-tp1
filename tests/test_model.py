@@ -17,7 +17,7 @@ from src.hybrid_transformer.fusion import (
 from src.hybrid_transformer.tabular_encoder import TabularEncoder, TabularEncoderConfig
 from src.hybrid_transformer.text_encoder import TextTransformerConfig, TextTransformerEncoder
 
-VOCAB, D_MODEL, D_TAB, CARDS = 128, 32, 16, [3, 4, 5]
+VOCAB, D_MODEL, D_TAB = 128, 32, 16
 B, T = 6, 12
 
 
@@ -28,9 +28,10 @@ def _texto(pooling="mean"):
     ))
 
 
-def _tabular(encoding="onehot"):
+def _tabular():
     return TabularEncoder(TabularEncoderConfig(
-        num_numeric=4, cardinalities=CARDS, d_tab=D_TAB, categorical_encoding=encoding,
+        num_numeric=4, num_direct=1, embedding_cardinalities=[3, 4],
+        onehot_cardinalities=[5, 6], d_tab=D_TAB,
     ))
 
 
@@ -40,11 +41,12 @@ def lote():
     mask = torch.ones(B, T, dtype=torch.long)
     mask[0, 8:] = 0
     mask[1, 5:] = 0
+    cards = [3, 4, 5, 6]
     return {
         "input_ids": torch.randint(1, VOCAB, (B, T)) * mask,
         "attention_mask": mask,
-        "x_num": torch.randn(B, 4),
-        "x_cat": torch.stack([torch.randint(1, c + 1, (B,)) for c in CARDS], dim=1),
+        "x_num": torch.randn(B, 5),
+        "x_cat": torch.stack([torch.randint(1, c + 1, (B,)) for c in cards], dim=1),
     }
 
 
@@ -170,10 +172,11 @@ def test_desglose_de_parametros_suma_el_total(lote):
     assert d["texto"] + d["tabular"] + d["cross_attention"] + d["cabeza"] == d["total"]
 
 
-def test_embedding_y_onehot_producen_la_misma_forma(lote):
-    for encoding in ("onehot", "embedding"):
-        modelo = BTRModel(_texto(), _tabular(encoding))
-        assert modelo(**lote).shape == (B,)
+def test_tabular_y_modelo_producen_la_forma_correcta(lote):
+    tabular = _tabular()
+    assert tabular(lote["x_num"], lote["x_cat"]).shape == (B, D_TAB)
+    modelo = BTRModel(_texto(), tabular)
+    assert modelo(**lote).shape == (B,)
 
 
 def test_muestras_independientes_en_el_batch(lote):

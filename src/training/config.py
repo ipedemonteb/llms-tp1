@@ -143,17 +143,10 @@ def build_run_name(args: argparse.Namespace, parser_factory) -> str:
     if usa_texto:
         opcionales = [("d_ff", "ff"), ("pooling", "pool"), ("pos_encoding", "pos"),
                       ("max_length", "len")] + opcionales
-    if usa_tabular:
-        opcionales.append(("cat_encoding", "cat"))
 
     for clave, prefijo in opcionales:
         if valores.get(clave) != defaults.get(clave):
             partes.append(f"{prefijo}{_formato_corto(valores[clave])}")
-
-    if usa_texto and valores.get("text_fields") != defaults.get("text_fields"):
-        campos = valores["text_fields"]
-        n = len(campos) if isinstance(campos, list) else len([c for c in campos.split(",") if c.strip()])
-        partes.append(f"tf{n}")
 
     partes.append(f"s{valores['seed']}")
     return "_".join(partes)
