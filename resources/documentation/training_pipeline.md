@@ -209,6 +209,35 @@ Cada corrida guarda en `results/runs/<run_name>/`:
 
 ---
 
+### 3.4. Figuras para la presentación
+
+```bash
+uv run python -m src.training.plots                              # todas las corridas
+uv run python -m src.training.plots --runs late_fusion baseline_texto
+uv run python -m src.training.plots --skip_predictions           # solo la figura 1 (rápido)
+```
+
+Las figuras se guardan en `results/figures/training/`.
+
+| Figura | Qué muestra | Para qué sección de la presentación |
+| :--- | :--- | :--- |
+| `01_curvas_aprendizaje_<run>.png` | Loss y PR-AUC de train vs val por época, con la mejor época marcada y la zona posterior sombreada. | *"¿Cómo evalúo la performance teniendo en cuenta overfitting y underfitting?"* |
+| `02_curvas_pr_roc_<run>.png` | Curvas Precision-Recall y ROC sobre test, cada una con su línea base dibujada. | De dónde salen las dos métricas reportadas, y por qué la ROC se ve más optimista. |
+| `03_comparacion_modelos.png` | PR-AUC de todas las corridas, con la línea base y el conteo de parámetros. | Comparación de alternativas arquitectónicas. |
+| `04_curva_top_n_<run>.png` | Precisión y recall según cuántos productos se promocionan. | Traducción del modelo a la decisión de negocio que originó el problema. |
+
+Las figuras 2 y 4 necesitan las predicciones sobre test: se recalculan cargando el checkpoint de
+la corrida, **sin reentrenar**. Con `--skip_predictions` se omiten.
+
+**Criterios de diseño aplicados.** La paleta se validó con el script de la metodología de
+visualización (modo claro, superficie `#fcfcfb`): separación CVD ΔE 9,2 y de visión normal ΔE 27,6
+en el peor par adyacente. Se usan dos series (azul `#2a78d6` para train/precisión, naranja
+`#eb6834` para validación/recall), marcas finas de 2 px, grilla hairline sólida, ejes recesivos y
+etiquetado directo selectivo. En la comparativa de modelos **todas las barras comparten color**:
+el largo ya codifica la magnitud, de modo que un degradado por valor sería doble codificación.
+
+---
+
 ## 4. Garantías Anti-Leakage
 
 | Artefacto | Se ajusta con | Se aplica a |
