@@ -212,3 +212,29 @@ def test_checkpoint_se_guarda_con_historial(df_sintetico, tmp_path):
     guardado = torch.load(ruta, weights_only=False)
     assert set(guardado) == {"model_state_dict", "best_epoch", "best_val_pr_auc", "history"}
     assert len(guardado["history"]) == 2
+
+
+# --- Reproducibilidad de la CLI ---
+
+class _Corte(Exception):
+    pass
+
+
+def test_main_siembra_antes_de_construir_el_modelo(monkeypatch):
+    from src.training import train
+
+    orden = []
+    monkeypatch.setattr(train, "set_seed", lambda semilla: orden.append(("set_seed", semilla)))
+
+    def _dataloaders_falsos(**kwargs):
+        orden.append(("build_dataloaders", kwargs["seed"]))
+        raise _Corte
+
+    monkeypatch.setattr(train, "build_dataloaders", _dataloaders_falsos)
+
+    with pytest.raises(_Corte):
+        train.main(["--seed", "7", "--no_text"])
+
+    assert orden == [("set_seed", 7), ("build_dataloaders", 7)], (
+        f"La siembra debe ser lo primero que ocurre en main(). Orden observado: {orden}"
+    )

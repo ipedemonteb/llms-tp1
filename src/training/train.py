@@ -38,7 +38,7 @@ from src.hybrid_transformer.text_encoder import TextTransformerConfig, TextTrans
 from src.training.config import apply_config, resolve_config_path
 from src.training.dataset import build_dataloaders
 from src.training.metrics import lift_over_baseline
-from src.training.trainer import Trainer, TrainerConfig
+from src.training.trainer import Trainer, TrainerConfig, set_seed
 
 
 def build_model(args, artefactos) -> BTRModel:
@@ -156,6 +156,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list] = None) -> dict:
     argv = list(sys.argv[1:] if argv is None else argv)
     args = apply_config(build_parser().parse_args(argv), build_parser, argv)
+
+    set_seed(args.seed)
 
     # `text_fields` se acepta como lista en el JSON o como string separado por comas en la CLI
     text_fields = args.text_fields
