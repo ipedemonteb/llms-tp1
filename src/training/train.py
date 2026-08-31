@@ -64,6 +64,7 @@ def build_model(args, artefactos) -> BTRModel:
             num_numeric=artefactos["num_numeric"],
             num_direct=artefactos["num_direct"],
             embedding_cardinalities=artefactos["embedding_cardinalities"],
+            embedding_dim=getattr(args, "embedding_dim", None),
             onehot_cardinalities=artefactos["onehot_cardinalities"],
             use_mlp=getattr(args, "tabular_mlp", False),
             d_tab=args.d_tab,
@@ -131,6 +132,8 @@ def build_parser() -> argparse.ArgumentParser:
                         choices=["sinusoidal", "learned", "none"])
 
     # Rama tabular y fusión
+    parser.add_argument("--embedding_dim", type=int, default=None,
+                        help="Dimensión común para todas las variables de Entity Embedding (ej. 4, 8, 16). Por defecto None (fórmula proporcional min(50, ceil(c/2))).")
     parser.add_argument("--tabular_mlp", action="store_true", default=False,
                         help="Si True, pasa las variables tabulares por un MLP intermedio antes de fusionar. Por defecto False (sin MLP intermedio).")
     parser.add_argument("--no_tabular_mlp", dest="tabular_mlp", action="store_false",

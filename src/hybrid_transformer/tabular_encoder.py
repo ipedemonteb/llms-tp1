@@ -304,6 +304,7 @@ class TabularEncoderConfig:
     num_direct: int = 1
     embedding_cardinalities: List[int] = field(default_factory=list)
     embedding_dims: Optional[List[int]] = None
+    embedding_dim: Optional[int] = None
     onehot_cardinalities: List[int] = field(default_factory=list)
     use_mlp: bool = False
     hidden_dims: List[int] = field(default_factory=lambda: [64])
@@ -319,7 +320,10 @@ class TabularEncoderConfig:
             raise ValueError("num_numeric y num_direct no pueden ser negativos.")
 
         if self.embedding_dims is None:
-            self.embedding_dims = [min(50, math.ceil(c / 2)) for c in self.embedding_cardinalities]
+            if self.embedding_dim is not None:
+                self.embedding_dims = [self.embedding_dim] * len(self.embedding_cardinalities)
+            else:
+                self.embedding_dims = [min(50, math.ceil(c / 2)) for c in self.embedding_cardinalities]
         elif len(self.embedding_dims) != len(self.embedding_cardinalities):
             raise ValueError(
                 f"embedding_dims ({len(self.embedding_dims)}) debe coincidir con embedding_cardinalities ({len(self.embedding_cardinalities)})."

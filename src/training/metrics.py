@@ -13,11 +13,11 @@ la vuelve interpretable: un valor de 0,13 equivale a no haber aprendido nada.
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import torch
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import average_precision_score, brier_score_loss, precision_recall_curve, roc_auc_score
 
 
 ArrayLike = Union[np.ndarray, torch.Tensor, Sequence[float]]
@@ -109,3 +109,67 @@ def lift_over_baseline(metricas: Dict[str, float], prefix: str = "") -> Optional
     if pr is None or base is None or not base or np.isnan(pr):
         return None
     return float(pr / base)
+
+
+def compute_extended_metrics(
+    y_true: ArrayLike,
+    logits: ArrayLike,
+    prefix: str = "",
+    top_k_pcts: Sequence[float] = (0.05, 0.10, 0.20),
+) -> Dict[str, float]:
+    """Calcula la batería completa de métricas exigidas y complementarias de negocio.
+
+    Incluye:
+    - Métricas de Ranking y Discriminación: PR-AUC, ROC-AUC, BCE Loss, Lift over Baseline.
+    - Métricas de Calibración: Brier Score (mean squared error de probabilidades).
+    - Punto de Operación Óptimo: Best F1-Score y su Umbral Óptimo correspondiente.
+    - Métricas de Negocio / Ranking Top-K%: Precision@K%, Recall@K% y Lift@K%.
+    """
+    y = _to_numpy(y_true)
+    z = _to_numpy(logits)
+    base_metrics = compute_metrics(y, z, prefix=prefix)
+    probas = sigmoid(z)
+    N = len(y)
+    total_pos = int(np.sum(y))
+
+    if N == 0 or total_pos == 0 or total_pos == N:
+        return base_metrics
+
+    # 1. Brier score (calibración)
+    brier = float(brier_score_loss(y, probas))
+    base_metrics[f"{prefix}brier_score"] = brier
+
+    # 2. Lift global
+    lift = lift_over_baseline(base_metrics, prefix=prefix)
+    if lift is not None:
+        base_metrics[f"{prefix}lift"] = lift
+
+    # 3. Best F1 y Umbral óptimo sobre la curva PR
+    precision, recall, thresholds = precision_recall_curve(y, probas)
+    # precision y recall tienen N+1 elementos; thresholds tiene N
+    f1_scores = np.divide(
+        2 * precision[:-1] * recall[:-1],
+        precision[:-1] + recall[:-1] + 1e-12,
+    )
+    best_idx = int(np.argmax(f1_scores)) if len(f1_scores) > 0 else 0
+    base_metrics[f"{prefix}best_f1"] = float(f1_scores[best_idx]) if len(f1_scores) > 0 else float("nan")
+    base_metrics[f"{prefix}best_threshold"] = float(thresholds[best_idx]) if len(thresholds) > 0 else 0.5
+
+    # 4. Métricas de Negocio Top-K%
+    order = np.argsort(-probas)
+    y_sorted = y[order]
+    prevalencia = float(np.mean(y))
+
+    for pct in top_k_pcts:
+        k = max(1, int(round(N * pct)))
+        pos_in_top_k = int(np.sum(y_sorted[:k]))
+        p_at_k = pos_in_top_k / k
+        r_at_k = pos_in_top_k / total_pos
+        lift_at_k = p_at_k / (prevalencia + 1e-12)
+        pct_tag = int(pct * 100)
+        base_metrics[f"{prefix}precision_top{pct_tag}pct"] = float(p_at_k)
+        base_metrics[f"{prefix}recall_top{pct_tag}pct"] = float(r_at_k)
+        base_metrics[f"{prefix}lift_top{pct_tag}pct"] = float(lift_at_k)
+
+    return base_metrics
+

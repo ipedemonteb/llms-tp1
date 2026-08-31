@@ -137,7 +137,10 @@ def build_run_name(args: argparse.Namespace, parser_factory) -> str:
     if usa_texto:
         partes += [f"d{valores['d_model']}", f"L{valores['num_layers']}", f"H{valores['n_heads']}"]
     if usa_tabular:
-        partes.append(f"dt{valores['d_tab']}")
+        if getattr(args, "tabular_mlp", False):
+            partes.append(f"dt{valores['d_tab']}")
+        if valores.get("embedding_dim") is not None:
+            partes.append(f"ed{valores['embedding_dim']}")
 
     opcionales = [("dropout", "do"), ("lr", "lr"), ("weight_decay", "wd"), ("batch_size", "bs")]
     if usa_texto:
