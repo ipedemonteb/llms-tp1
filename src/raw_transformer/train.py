@@ -48,7 +48,7 @@ def build_run_name(args: argparse.Namespace, parser_factory) -> str:
     defaults = vars(parser_factory().parse_args([]))
     valores = vars(args)
 
-    partes: List[str] = ["raw", f"d{valores['d_model']}", f"L{valores['num_layers']}",
+    partes: List[str] = [valores["data_prefix"], f"d{valores['d_model']}", f"L{valores['num_layers']}",
                          f"H{valores['n_heads']}"]
 
     opcionales = [("d_ff", "ff"), ("pooling", "pool"), ("pos_encoding", "pos"),
@@ -102,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Datos
     parser.add_argument("--data_dir", type=str, default="resources/datasets")
+    parser.add_argument("--data_prefix", type=str, default="raw",
+                        help="Prefijo de los CSV serializados ('raw' = preset all; 'raw_po' = product_only).")
     parser.add_argument("--tokenizer_path", type=str, default="resources/tokenizer/bpe_tokenizer_raw.json")
     parser.add_argument("--max_length", type=int, default=256,
                         help="256 cubre el 100%% del corpus serializado (decisión D4).")
@@ -157,6 +159,7 @@ def main(argv: Optional[list] = None) -> dict:
         max_length=args.max_length,
         batch_size=args.batch_size,
         seed=args.seed,
+        prefix=args.data_prefix,
     )
     tokenizer = load_tokenizer(args.tokenizer_path, max_length=args.max_length)
 

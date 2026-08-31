@@ -33,7 +33,17 @@ from src.tokenizer import ByteLevelBPETokenizer
 
 DEFAULT_TOKENIZER_PATH = "resources/tokenizer/bpe_tokenizer_raw.json"
 DEFAULT_DATA_DIR = "resources/datasets"
-SPLIT_FILES = {"train": "raw_train.csv", "val": "raw_val.csv", "test": "raw_test.csv"}
+DEFAULT_PREFIX = "raw"
+
+
+def split_files(prefix: str = DEFAULT_PREFIX) -> Dict[str, str]:
+    """Nombres de archivo de los tres splits para un prefijo de serialización dado.
+
+    El prefijo distingue los presets de campos de `serialize.py`: 'raw' para el preset
+    `all` y, por ejemplo, 'raw_po' para `product_only` (la comparación controlada contra
+    el hybrid, sin contexto de búsqueda).
+    """
+    return {name: f"{prefix}_{name}.csv" for name in ("train", "val", "test")}
 
 
 class RawSerializedDataset(Dataset):
@@ -124,13 +134,14 @@ def build_datasets(
     data_dir: str = DEFAULT_DATA_DIR,
     tokenizer_path: str = DEFAULT_TOKENIZER_PATH,
     max_length: int = 256,
+    prefix: str = DEFAULT_PREFIX,
 ) -> Dict[str, RawSerializedDataset]:
     """Construye los tres datasets (train/val/test) con un tokenizador compartido."""
     tokenizer = load_tokenizer(tokenizer_path, max_length=max_length)
     base = Path(data_dir)
     return {
         name: RawSerializedDataset(base / filename, tokenizer, max_length=max_length)
-        for name, filename in SPLIT_FILES.items()
+        for name, filename in split_files(prefix).items()
     }
 
 
@@ -141,13 +152,14 @@ def build_dataloaders(
     batch_size: int = 32,
     num_workers: int = 0,
     seed: Optional[int] = 42,
+    prefix: str = DEFAULT_PREFIX,
 ) -> Tuple[Dict[str, DataLoader], Dict[str, RawSerializedDataset]]:
     """Construye los DataLoaders de PyTorch.
 
     Solo `train` se mezcla (`shuffle=True`); val y test mantienen el orden cronológico
     para que las métricas sean reproducibles entre corridas.
     """
-    datasets = build_datasets(data_dir, tokenizer_path, max_length)
+    datasets = build_datasets(data_dir, tokenizer_path, max_length, prefix=prefix)
 
     generator = torch.Generator()
     if seed is not None:
