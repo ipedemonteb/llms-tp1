@@ -249,8 +249,20 @@ Padding a longitud fija 256; shuffle solo en train, val/test en orden cronológi
 - `pos_weight = 6,600` (calculado **solo sobre train**) para `BCEWithLogitsLoss`
 - Verificación end-to-end: el modelo consume un batch real y devuelve logits `(32,)`
 
-### Fase 5 — Entrenamiento ⬜
-`train.py`: CLI fina sobre `src.training.trainer.Trainer` (D6), resultados en `results/runs_raw/`.
+### Fase 5 — Entrenamiento ✅
+`train.py`: CLI fina sobre `src.training.trainer.Trainer` (D6), resultados en `results/runs_raw/`
+con el mismo formato de `summary.json` / `history.csv` / `checkpoint.pt` que las corridas del hybrid.
+
+- Defaults de entrenamiento idénticos a `src/training/train.py` (AdamW lr=1e-3, wd=0.01,
+  batch_size=64, 20 épocas, patience=5, BCE sin ponderar) para que la comparación sea justa
+- `--auto_pos_weight` calcula n_neg/n_pos sobre train (≈ 6,6) como ablation del desbalance
+- ✅ **Checkpoint superado** (smoke run de 2 épocas en CPU, ~105 s/época): el `Trainer`
+  común consume los batches sin adaptación, la loss baja (0.287 → 0.160) y el pipeline
+  completo guarda checkpoint, resumen e historial.
+
+> ⚠️ Ya con 2 épocas el preset `all` da PR-AUC de test ≈ 0.67 (lift 5x). Recordar el
+> confounder de D2: `all` incluye el contexto de búsqueda (`query_id`, `filter_*`) que el
+> hybrid no ve. La comparación honesta contra el hybrid es con el preset `product_only`.
 
 ### Fase 6 — Evaluación y comparación ⬜
 - PR-AUC / ROC-AUC en test, contra el baseline del hybrid
