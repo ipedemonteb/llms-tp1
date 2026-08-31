@@ -317,7 +317,7 @@ class ByteLevelBPETokenizer:
     def from_file(
         cls,
         path: Union[str, Path],
-        max_length: Optional[int] = 128,
+        max_length: Optional[int] = 64,
         pad_token: str = "[PAD]",
         unk_token: str = "[UNK]",
         cls_token: str = "[CLS]",
@@ -378,17 +378,17 @@ def main():
     parser.add_argument(
         "--max_length",
         type=int,
-        default=128,
-        help="Longitud máxima de secuencia para padding/truncamiento (por defecto: 128).",
+        default=64,
+        help="Longitud máxima de secuencia para padding/truncamiento (por defecto: 64).",
     )
     parser.add_argument(
         "--test_sentence",
         type=str,
         default=(
-            "Cedar House Steamable Pepperoni Pizza | Well Reviewed | "
+            "Cedar House Steamable Pepperoni Pizza | "
             "Steamable pepperoni pizza in a 10 oz package for online grocery orders. "
-            "Listed under frozen and intended for frozen storage. | "
-            "Prepared ingredients, Spices, Salt | United States | Wheat"
+            "Listed under frozen and intended for frozen storage. A dependable pick according to reviews. | "
+            "Prepared ingredients, Spices, Salt"
         ),
         help="Frase de prueba para validar la tokenización y decodificación.",
     )
@@ -428,10 +428,10 @@ def main():
     batch_sample = [
         args.test_sentence,
         (
-            "Sunny Basket Ready To Heat Waffles | Customer Favorite | "
+            "Sunny Basket Ready To Heat Waffles | "
             "Ready to heat waffles in a 6 ct package for online grocery orders. "
-            "Listed under frozen and intended for frozen storage. | "
-            "Flour, Sugar, Eggs | Canada | Milk"
+            "Listed under frozen and intended for frozen storage. Well liked by regular shoppers. | "
+            "Flour, Sugar, Eggs"
         ),
     ]
     batch_output = tokenizer.encode_batch(batch_sample, max_length=args.max_length, return_tensors="pt")

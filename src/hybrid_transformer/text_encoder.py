@@ -611,8 +611,14 @@ def run_smoke_tests() -> None:
         tok_path = "resources/tokenizer/bpe_tokenizer.json"
         tokenizer = ByteLevelBPETokenizer.from_file(tok_path)
         sample_texts = [
-            "Cedar House Steamable Pepperoni Pizza | Best Seller | Crispy crust | Flour, Yeast",
-            "Organic Whole Milk | Customer Favorite | Fresh dairy | Milk, Vitamin D3",
+            "Cedar House Steamable Pepperoni Pizza | "
+            "Steamable pepperoni pizza in a 10 oz package for online grocery orders. "
+            "Listed under frozen and intended for frozen storage. A dependable pick according to reviews. | "
+            "Prepared ingredients, Spices, Salt",
+            "Sunny Basket Ready To Heat Waffles | "
+            "Ready to heat waffles in a 6 ct package for online grocery orders. "
+            "Listed under frozen and intended for frozen storage. Well liked by regular shoppers. | "
+            "Flour, Sugar, Eggs",
         ]
         encoded = tokenizer.encode_batch(sample_texts, max_length=128, return_tensors="pt")
 

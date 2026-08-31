@@ -9,16 +9,13 @@ cualquier tipo de data leakage temporal.
 Composición de la secuencia de texto
 ------------------------------------
 Los campos que forman la columna `text` son configurables vía `--text_fields`.
-El default incluye seis campos:
+El default incluye exclusivamente los tres campos de lenguaje natural:
 
-    title_clean | badge | description | ingredients | country_of_origin | allergens
+    title_clean | description | ingredients
 
-Los dos últimos se incorporaron porque el EDA mostró que NO están representados en
-la prosa del catálogo: `country_of_origin` no aparece en ninguna fila y `allergens`
-solo en el 35% de las que declaran alérgeno. En cambio `brand`, `category`,
-`storage_type` y `unit_of_measure` ya aparecen literalmente en el texto en el 100%
-de las filas (ver `src/data_analysis/brand_title_consistency.py`), por lo que
-agregarlos duplicaría tokens sin aportar información nueva.
+Las variables estructuradas y categóricas (`brand`, `category`, `country_of_origin`,
+`allergens`, `storage_type`, `title_tag`, etc.) se derivan y procesan en la rama tabular
+mediante Entity Embeddings, One-Hot y tratamiento numérico.
 
 Todas las columnas del dataset de entrada se conservan en la salida, de modo que la
 rama tabular pueda consumirlas y que la composición del texto pueda recalcularse en
@@ -31,12 +28,8 @@ Guarda los datasets generados en la carpeta `resources/datasets/`:
 - `resources/datasets/transformer_dataset_complete.csv` (100% con columna 'split')
 
 Uso:
-    # Default: seis campos de texto
+    # Default: tres campos de lenguaje natural
     uv run python -m src.data_extraction.build_transformer_dataset
-
-    # Ablación: agregar `brand` como séptimo campo
-    uv run python -m src.data_extraction.build_transformer_dataset \
-        --text_fields title_clean,badge,description,ingredients,country_of_origin,allergens,brand
 """
 
 import argparse
