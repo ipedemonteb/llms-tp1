@@ -181,10 +181,30 @@ Se reporta también el conteo de parámetros de cada uno — si `raw` tiene much
   - Balance estable entre splits: BTR 13,16% / 12,20% / 13,13% (sin drift temporal del target)
   - Salidas: `resources/datasets/raw_{train,val,test}.csv`
 
-### Fase 2 — Tokenizador propio ⬜
+### Fase 2 — Tokenizador propio ✅
 `train_tokenizer.py`: BPE entrenado **solo sobre train** (7.000 secuencias), presupuesto de
 vocabulario 2048 (igual que el hybrid), guardado en `resources/tokenizer/bpe_tokenizer_raw.json`.
-- Análisis de fragmentación numérica y de longitudes (alimenta D4 y la presentación)
+- ✅ Vocabulario efectivo: **2048** (el corpus serializado sí agota el presupuesto;
+  el del hybrid quedó en 1720)
+- ✅ D4 confirmada: longitudes media 198 / p99 207 / max 212 → `max_seq_len = 256`
+- ✅ **Checkpoint superado.** Evidencia sobre la fragmentación numérica:
+
+```
+price: 8.25           -> ['price', ':', 'Ġ8', '.', '25']
+price: 13.33          -> ['price', ':', 'Ġ13', '.', '33']
+nutrition_score: 61   -> ['n','ut','rition','_','score', ':', 'Ġ61']
+nutrition_score: 69   -> ['n','ut','rition','_','score', ':', 'Ġ69']
+category: Frozen      -> ['category', ':', 'ĠFrozen']          ← 1 solo token
+```
+
+**El resultado clave:** `61` y `69` son dos IDs de vocabulario **arbitrarios y sin ninguna
+relación entre sí**. Para el modelo, la distancia entre 61 y 69 es exactamente igual que la
+distancia entre 61 y `Frozen`: cero estructura de orden. Toda la noción de magnitud tiene
+que aprenderse desde los datos.
+
+En cambio las categóricas sobreviven intactas (`ĠFrozen` es un único token), lo que **respalda
+la predicción #2**: la brecha contra el hybrid debería venir de las numéricas, no de las
+categóricas.
 
 ### Fase 3 — Modelo ⬜
 `model.py`: `RawTransformerClassifier` = `TextTransformerEncoder` (importado sin modificar)
