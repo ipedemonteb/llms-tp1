@@ -47,7 +47,9 @@ Todas las 21 columnas del dataset (`clean_dataset.csv`) están asignadas a una r
 
 ---
 
-## 2. Mapa Global de la Arquitectura Multimodal
+## 2. Mapa Global de la Arquitectura Multimodal (Conexión Directa)
+
+Por defecto, **no hay un MLP intermedio en la rama tabular**: las representaciones tabulares (embeddings, one-hot, numéricas y directas) se concatenan directamente con la salida del Transformer $e_{\text{text}}$ y entran al **único MLP final (cabeza clasificadora)** para predecir el BTR.
 
 ```
                                   PRODUCTO DEL CATÁLOGO (Fila i)
@@ -63,28 +65,26 @@ Todas las 21 columnas del dataset (`clean_dataset.csv`) están asignadas a una r
                │                                                                 │
                ▼                                                                 ▼
      TextTransformerEncoder                                               TabularEncoder
-  (Embeddings + PosEnc + L x Blocks)                                 (Embeddings + One-Hot + MLP)
+  (Embeddings + PosEnc + L x Blocks)                                 (Embeddings + One-Hot + Numéricas)
                │                                                                 │
-       ┌───────┴───────┐                                                         │
-       ▼               ▼                                                         │
-  Pooling != 'none'  Pooling == 'none'                                           │
-  e_text (B, d_model) H_text (B, T, d_model)                                     │
-       │               │                                                         │
-       │               └───────────────────────────────┬─────────────────────────┤
-       │                                               ▼                         │
-       │                                      [ CROSS-ATTENTION ]                │
-       │                                  (e_tab modula H_text como Q)           │
-       │                                               │                         │
-       ▼                                               ▼                         ▼
-   [ LATE FUSION ] ───────────────────────► Concatenación [e_text ‖ e_tab] ◄─────┘
-(Concat directo e_text ‖ e_tab)                        │
-                                                       ▼
-                                             ClassifierHead (MLP)
-                                                       │
-                                             logit de compra (B,)
-                                                       │
-                                                       ▼
-                                              BCEWithLogitsLoss
+               ▼                                                                 ▼
+      e_text (B, d_model)                                           e_tab crudo (B, input_dim ~ 59)
+               │                                                                 │
+               └───────────────────────────────┬─────────────────────────────────┘
+                                               ▼
+                                  Concatenación Directa (~123 dims)
+                                               │
+                                               ▼
+                                    ┌──────────────────────┐
+                                    │   ÚNICO MLP FINAL    │
+                                    │ (Linear->GELU->1 dim)│
+                                    └──────────┬───────────┘
+                                               │
+                                               ▼
+                                     logit de compra (B,)
+                                               │
+                                               ▼
+                                      BCEWithLogitsLoss
 ```
 
 ---
@@ -149,21 +149,9 @@ Estandarización Z-score       │                             │              
       │                       │                             │                       │
       └───────────────────────┴──────────────┬──────────────┴───────────────────────┘
                                              ▼
-                              Concatenación (Dimensión Entrada MLP)
-                                             │
-                                             ▼
-                                  MLP Tabular (Lineales + BN + Act + Dropout)
-                                             │
-                                             ▼
-                                    Vector e_tab (B, d_tab)
+                        Concatenación Directa: e_tab (~59 dims)
+                     (Pasa directo al Clasificador Final sin MLP intermedio)
 ```
-
-| Grupo de Variables | Campos Incluidos | Cardinalidad / Escala | Tratamiento y Preprocesamiento | Justificación y Rol |
-| :--- | :--- | :---: | :--- | :--- |
-| **Numéricas Continuas (Z-score)** | `price`, `price_span`, `price_per_oz`, `net_weight_oz`, `volume`, `num_ingredients`, `nutrition_score` | Continuas $\mathbb{R}$ | • **`log1p`** aplicado a `price_per_oz`, `net_weight_oz` y `volume` para mitigar asimetría.<br>• **Estandarización Z-score** $(\mu=0, \sigma=1)$ aprendida de train. | Evita que variables en magnitudes dispares (ej. volumen en $in^3$ vs. precio en USD) dominen los gradientes del MLP. |
-| **Variables Directas** | `has_allergens` | Binaria $\{0.0, 1.0\}$ | **Passthrough numérico directo** (sin alterar media ni varianza). | Preserva el significado exacto de ausencia/presencia de alérgenos. |
-| **Categóricas en Entity Embeddings** | `brand`, `category`, `country_of_origin`, `allergens` | Media-Alta cardinalidad (10 a 20 clases) | `nn.Embedding(card + 1, dim, padding_idx=0)`. Índice 0 reservado para valores no vistos (*OOV*). | Aprende una representación latente densa y similitudes continuas entre marcas y categorías. |
-| **Categóricas en One-Hot** | `storage_type`, `unit_of_measure`, `title_tag`, `day_of_week` | Baja cardinalidad (4 a 7 clases) | `F.one_hot(..., num_classes=card + 1)[:, 1:]`. | Codificación exacta no paramétrica sin sobreparametrizar para variables de pocas clases discretas. |
 
 ---
 
@@ -171,12 +159,11 @@ Estandarización Z-score       │                             │              
 
 | Hiperparámetro | Flag CLI | Clave JSON | Tipo | Default | Valores / Rango para Ablación | Impacto y Comportamiento |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **Dimensión de Salida ($d_{\text{tab}}$)** | `--d_tab` | `"d_tab"` | `int` | `32` | `[16, 32, 64]` | Dimensión del vector resultante $e_{\text{tab}}$. En Late Fusion se concatena con $e_{\text{text}}$ ($d_{\text{fused}} = d_{\text{model}} + d_{\text{tab}}$). |
-| **Capas Ocultas del MLP (`hidden_dims`)** | *(Config Python)* | `"hidden_dims"` | `list[int]` | `[64]` | `[[], [32], [64], [128, 64]]` | Estructura interna del MLP tabular. `[]` proyecta directamente en una capa lineal; `[128, 64]` otorga mayor capacidad no lineal. |
+| **MLP Tabular Intermedio** | `--tabular_mlp`<br>`--no_tabular_mlp` | `"tabular_mlp"` | `bool` | `false` | `[false (directo), true (con MLP)]` | **`false`**: las variables tabulares se concatenan directamente a la cabeza.<br>**`true`**: pasan por un MLP previo que las comprime a `d_tab`. |
+| **Dimensión de Salida ($d_{\text{tab}}$)** | `--d_tab` | `"d_tab"` | `int` | `32` | `[16, 32, 64]` | Dimensión de salida si `--tabular_mlp` está activo. Si está desactivado, la dimensión es la suma exacta de features (~59). |
 | **Dimensiones de Entity Embeddings** | *(Automático)* | `"embedding_dims"`| `list[int]` | $\min(50, \lceil c/2 \rceil)$ | Auto o manual `[8, 8, 8, 8]` | Dimensión del vector de embedding asignado a cada variable categórica. |
-| **Uso de BatchNorm en Numéricas** | *(Config Python)* | `"use_batchnorm"` | `bool` | `true` | `[true, false]` | Aplica `nn.BatchNorm1d` sobre las numéricas y en las capas intermedias del MLP. Estabiliza el aprendizaje con minilotes. |
-| **Dropout Tabular** | `--dropout` | `"dropout"` | `float` | `0.1` | `[0.0, 0.1, 0.2, 0.3]` | Regularización por dropout en el MLP tabular. |
-| **Activación Tabular** | *(Config Python)* | `"activation"` | `str` | `"gelu"` | `["gelu", "relu"]` | Función no lineal entre capas del MLP tabular. |
+| **Uso de BatchNorm en Numéricas** | *(Config Python)* | `"use_batchnorm"` | `bool` | `true` | `[true, false]` | Aplica `nn.BatchNorm1d` sobre las numéricas antes de concatenar. |
+| **Dropout Tabular** | `--dropout` | `"dropout"` | `float` | `0.1` | `[0.0, 0.1, 0.2, 0.3]` | Regularización por dropout en la rama tabular. |
 
 ---
 
@@ -185,13 +172,13 @@ Estandarización Z-score       │                             │              
 ### 5.1. Mecanismos de Fusión Disponibles
 
 ```
-                        ALTERNATIVA 1: LATE FUSION (Concatenación)
+                        ALTERNATIVA 1: LATE FUSION (Concatenación Directa)
                e_text: (B, d_model)  ──┐
-                                       ├──► [e_text ‖ e_tab]: (B, d_model + d_tab) ──► MLP Head ──► Logit
-               e_tab : (B, d_tab)    ──┘
+                                       ├──► [e_text ‖ e_tab]: (B, d_model + input_dim ~ 123) ──► Único MLP Head ──► Logit
+               e_tab : (B, input_dim)──┘
 
                     ALTERNATIVA 2: CROSS-ATTENTION (Atención Cruzada)
-                                           e_tab: (B, d_tab)
+                                           e_tab: (B, input_dim)
                                                   │
                                                   ▼
                                          Query: Q = e_tab * W_Q (B, 1, H, d_k)
@@ -204,14 +191,9 @@ Estandarización Z-score       │                             │              
                                                   ▼
                                        e_cross: (B, d_model)
                                                   │
-                                                  ├──► [e_cross ‖ e_tab] ──► MLP Head ──► Logit
+                                                  ├──► [e_cross ‖ e_tab] ──► Único MLP Head ──► Logit
                                        e_tab   ───┘
 ```
-
-| Modo de Fusión | Flag CLI / Clave JSON | Descripción Algorítmica | Ventajas y Cuándo Usarlo |
-| :--- | :--- | :--- | :--- |
-| **Late Fusion** (Default) | `--fusion late`<br>`"fusion": "late"` | Concatenación estática de vectores colapsados: $[e_{\text{text}} \,\|\, e_{\text{tab}}] \in \mathbb{R}^{d_{\text{model}} + d_{\text{tab}}}$. | Simple, rápido, altamente interpretable y muy estable numéricamente. Punto de partida de referencia. |
-| **Cross-Attention** | `--fusion cross`<br>`"fusion": "cross"` | El vector tabular actúa como **Query ($Q$)** y atiende dinámicamente a la secuencia completa de tokens **Keys ($K$)** y **Values ($V$)**. | Permite que el perfil tabular del producto (precio, categoría, almacén) resalte dinámicamente palabras clave en el texto (claims, ingredientes, etc.). |
 
 ---
 
@@ -221,7 +203,7 @@ Estandarización Z-score       │                             │              
 | :--- | :--- | :--- |
 | **Modelo Multimodal Híbrido** | *(Default)* | Utiliza ambas ramas: `use_text=True`, `use_tabular=True`. |
 | **Baseline Solo Texto** | `--no_tabular`<br>`"use_tabular": false` | Desactiva la rama tabular. Aísla el poder predictivo del Transformer puro sobre el texto. |
-| **Baseline Solo Tabular** | `--no_text`<br>`"use_text": false` | Desactiva el Transformer. Aísla el poder predictivo del MLP sobre variables numéricas y categóricas. |
+| **Baseline Solo Tabular** | `--no_text`<br>`"use_text": false` | Desactiva el Transformer. Aísla el poder predictivo del clasificador sobre variables tabulares. |
 | **Capas Ocultas de la Cabeza** | *(Config Python)* `"hidden_dims"` | Capas del MLP final antes del logit escalar (default: `[64]`). Proyecta $d_{\text{fused}} \to 64 \to 1$. |
 
 ---
@@ -243,152 +225,35 @@ Estandarización Z-score       │                             │              
 
 | Hiperparámetro | Flag CLI | Clave JSON | Tipo | Default | Valores / Rango para Ablación | Impacto en la Optimización |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **Learning Rate ($\eta$)** | `--lr` | `"lr"` | `float` | `0.001` | `[1e-4, 3e-4, 5e-4, 1e-3, 3e-3]` | Velocidad de actualización. Valores altos ($\ge 3\times 10^{-3}$) pueden causar inestabilidad; valores bajos ($10^{-4}$) pueden requerir más épocas. |
-| **Weight Decay ($\lambda$)** | `--weight_decay` | `"weight_decay"` | `float` | `0.01` | `[0.0, 1e-4, 0.01, 0.05, 0.1]` | Penalización L2 desacoplada. Subir a $0.05$ combate activamente el sobreajuste observado a partir del epoch 3. |
-| **Dropout Global** | `--dropout` | `"dropout"` | `float` | `0.1` | `[0.0, 0.1, 0.2, 0.3]` | Probabilidad de desactivación neuronal en todas las ramas. |
-| **Tamaño de Lote ($B$)** | `--batch_size` | `"batch_size"` | `int` | `64` | `[16, 32, 64, 128]` | Cantidad de muestras por paso. Lotes chicos (32) introducen ruido regularizador; lotes grandes (128) aceleran el epoch. |
-| **Épocas Máximas** | `--epochs` | `"epochs"` | `int` | `20` | `[10, 20, 30, 50]` | Límite superior de iteraciones completas sobre train. Cortado antes por early stopping. |
-| **Paciencia Early Stopping** | `--patience` | `"patience"` | `int` | `5` | `[3, 5, 8, 10]` | Épocas consecutivas sin superar la mejor PR-AUC en validación antes de frenar el entrenamiento. |
-| **Peso Positivo Loss ($w_{\text{pos}}$)** | `--pos_weight` | `"pos_weight"` | `float` | `null` | `[null, 2.0, 3.76, 5.0]` | Ponderación de la clase $y=1$ en la loss. Penaliza con mayor fuerza los falsos negativos. |
-| **Semilla Aleatoria ($seed$)** | `--seed` | `"seed"` | `int` | `42` | `[7, 42, 123, 456, 999]` | Fija generadores de números aleatorios (`random`, `numpy`, `torch`). Esencial para medir significancia estadística pareada. |
+| **Learning Rate ($\eta$)** | `--lr` | `"lr"` | `float` | `0.001` | `[1e-4, 3e-4, 5e-4, 1e-3, 3e-3]` | Velocidad de actualización. |
+| **Weight Decay ($\lambda$)** | `--weight_decay` | `"weight_decay"` | `float` | `0.01` | `[0.0, 1e-4, 0.01, 0.05, 0.1]` | Penalización L2 desacoplada. Subir a $0.05$ combate activamente el sobreajuste. |
+| **Dropout Global** | `--dropout` | `"dropout"` | `float` | `0.1` | `[0.0, 0.1, 0.2, 0.3]` | Probabilidad de desactivación neuronal. |
+| **Tamaño de Lote ($B$)** | `--batch_size` | `"batch_size"` | `int` | `64` | `[16, 32, 64, 128]` | Muestras por paso de optimización. |
+| **Épocas Máximas** | `--epochs` | `"epochs"` | `int` | `20` | `[10, 20, 30, 50]` | Límite superior de iteraciones completas. |
+| **Paciencia Early Stopping** | `--patience` | `"patience"` | `int` | `5` | `[3, 5, 8, 10]` | Épocas consecutivas sin superar la mejor PR-AUC en validación. |
+| **Peso Positivo Loss ($w_{\text{pos}}$)** | `--pos_weight` | `"pos_weight"` | `float` | `null` | `[null, 2.0, 3.76, 5.0]` | Ponderación de la clase positiva para desbalance. |
+| **Semilla Aleatoria ($seed$)** | `--seed` | `"seed"` | `int` | `42` | `[7, 42, 123, 456, 999]` | Fija generadores de números aleatorios para significancia estadística. |
 | **Dispositivo de Cómputo** | `--device` | `"device"` | `str` | `null` | `["cuda", "mps", "cpu"]` | Hardware de ejecución (`null` autodetecta GPU CUDA o Apple Silicon MPS). |
 
 ---
 
 ## 7. Guía de Ejecución y Plan de Experimentos de Ablación
 
-A continuación se detallan las fases recomendadas para un estudio sistemático y exhaustivo de ablación, con sus comandos listos para ejecutar.
-
-### Fase 1: Baselines y Modalidades Aisladas (Punto de Partida)
-
-Objetivo: Demostrar empíricamente la superioridad de la arquitectura multimodal híbrida sobre los enfoques de una sola modalidad.
-
 ```bash
-# 1. Baseline Tabular Puro (MLP sin Transformer)
-uv run python -m src.training.train --config baseline_tabular
+# 1. Modelo Híbrido Directo (Sin MLP tabular intermedio - DEFAULT)
+uv run python -m src.training.train --config late_fusion
 
-# 2. Baseline Texto Puro (Solo Transformer)
+# 2. Ablación: Comparar con MLP tabular intermedio activado
+uv run python -m src.training.train --config late_fusion --tabular_mlp --run_name con_tabular_mlp
+
+# 3. Baselines de referencia
+uv run python -m src.training.train --config baseline_tabular
 uv run python -m src.training.train --config baseline_texto
 
-# 3. Modelo Híbrido de Referencia (Late Fusion)
-uv run python -m src.training.train --config late_fusion
-```
-
----
-
-### Fase 2: Comparación de Módulos de Fusión (Late vs. Cross-Attention)
-
-Objetivo: Evaluar si el mecanismo dinámico de Cross-Attention mejora la extracción semántica respecto a la concatenación plana.
-
-```bash
-# Fusión por Cross-Attention con 4 cabezales
+# 4. Fusión por Cross-Attention
 uv run python -m src.training.train --config cross_attention
 
-# Cross-Attention con 2 cabezales de atención
-uv run python -m src.training.train --config cross_attention --n_heads 2 --run_name cross_attn_h2
-```
-
----
-
-### Fase 3: Ablación de Capacidad y Arquitectura del Transformer
-
-Objetivo: Analizar el impacto de la profundidad ($L$), ancho ($d_{\text{model}}$), cabezales ($H$) y tamaño del Feed-Forward ($d_{\text{ff}}$).
-
-```bash
-# 1. Modelo Reducido / Ultraliviano (d_model=32, L=1, H=2, d_tab=16)
-uv run python -m src.training.train --config modelo_chico
-
-# 2. Modelo de Mayor Capacidad (d_model=96, L=3, H=4, d_ff=384)
-uv run python -m src.training.train --config late_fusion \
-  --d_model 96 --num_layers 3 --n_heads 4 --d_ff 384 \
-  --run_name transformer_grande_d96_L3
-
-# 3. Variación de Cabezales de Atención (H=2 vs H=8 manteniendo d_model=64)
-uv run python -m src.training.train --config late_fusion --n_heads 2 --run_name heads_2
-uv run python -m src.training.train --config late_fusion --n_heads 8 --run_name heads_8
-```
-
----
-
-### Fase 4: Ablación de Mecanismos Internos (Pooling y Positional Encoding)
-
-Objetivo: Identificar cómo influyen el método de agregación temporal y la inyección de información posicional.
-
-```bash
-# 1. Pooling: CLS Token vs Max Pooling vs Mean Pooling (Default)
+# 5. Ablación de Pooling y Positional Encoding
 uv run python -m src.training.train --config late_fusion --pooling cls --run_name pool_cls
-uv run python -m src.training.train --config late_fusion --pooling max --run_name pool_max
-
-# 2. Positional Encoding: Aprendible vs Sin Posición (Ablación de orden)
-uv run python -m src.training.train --config late_fusion --pos_encoding learned --run_name pos_learned
-uv run python -m src.training.train --config late_fusion --pos_encoding none    --run_name pos_none
+uv run python -m src.training.train --config late_fusion --pos_encoding none --run_name pos_none
 ```
-
----
-
-### Fase 5: Estrategias de Regularización contra Overfitting
-
-Objetivo: Controlar la brecha de sobreajuste observada a partir del epoch 3 mediante combinaciones de Dropout, Weight Decay y Batch Size.
-
-```bash
-# 1. Regularización Alta (Dropout 0.3, Weight Decay 0.05)
-uv run python -m src.training.train --config regularizacion_alta
-
-# 2. Sin Regularización (Dropout 0.0, Weight Decay 0.0)
-uv run python -m src.training.train --config late_fusion \
-  --dropout 0.0 --weight_decay 0.0 \
-  --run_name sin_regularizacion
-
-# 3. Impacto de Batch Size (BS=32 vs BS=128)
-uv run python -m src.training.train --config late_fusion --batch_size 32  --run_name bs32
-uv run python -m src.training.train --config late_fusion --batch_size 128 --run_name bs128
-```
-
----
-
-### Fase 6: Robustez y Significancia Estadística Multi-Semilla
-
-Objetivo: Obtener medias e intervalos de confianza para descartar que las diferencias de rendimiento se deban a variabilidad de inicialización.
-
-```bash
-# Bucle de 5 semillas sobre el modelo de referencia
-for s in 7 42 123 456 999; do
-  uv run python -m src.training.train --config late_fusion --seed $s --run_name late_fusion_seed_$s
-done
-
-# Bucle de 5 semillas sobre Cross-Attention
-for s in 7 42 123 456 999; do
-  uv run python -m src.training.train --config cross_attention --seed $s --run_name cross_attn_seed_$s
-done
-```
-
----
-
-## 8. Generación de Tablas Agregadas y Gráficos Comparativos
-
-Una vez ejecutadas las corridas de interés:
-
-```bash
-# 1. Generar figuras comparativas de todas las corridas en results/figures/training/
-uv run python -m src.training.plots
-
-# 2. Generar figuras comparando corridas puntuales
-uv run python -m src.training.plots --runs late_fusion cross_attention baseline_texto baseline_tabular
-
-# 3. Inspeccionar el resumen agregado generado
-cat results/aggregate/resumen.csv
-```
-
----
-
-## 9. Resumen Rápido: ¿Qué Variar y Qué Esperar?
-
-| Si querés evaluar... | Variá este parámetro | Valores a contrastar | Qué buscar en los resultados |
-| :--- | :--- | :---: | :--- |
-| **El aporte del texto** | `use_text` / `use_tabular` | `baseline_tabular` vs `late_fusion` | Salto de PR-AUC y Lift sobre la prevalencia base. |
-| **El valor del orden sintáctico** | `--pos_encoding` | `sinusoidal` vs `none` | Si `none` apenas cae, el texto actúa más como bolsa de palabras clave que como sintaxis rígida. |
-| **La agregación de tokens** | `--pooling` | `mean` vs `cls` vs `max` | `mean` suele ser más estable para descripciones largas; `max` resalta claims aislados. |
-| **La interacción multimodal** | `--fusion` | `late` vs `cross` | Si Cross-Attention mejora la PR-AUC, indica que el contexto tabular modula qué palabras importan. |
-| **La capacidad del Transformer** | `--d_model`, `--num_layers` | `(32, 1)` vs `(64, 2)` vs `(96, 3)` | Relación entre número de parámetros, tiempo por época y sobreajuste. |
-| **El control de sobreajuste** | `--dropout`, `--weight_decay` | `(0.1, 0.01)` vs `(0.3, 0.05)` | Retraso del punto de saturación en las curvas de aprendizaje train vs val. |
-| **La estabilidad estadística** | `--seed` | `7, 42, 123, 456, 999` | Desvío estándar de PR-AUC sobre test (evitar conclusiones basadas en una sola corrida atípica). |

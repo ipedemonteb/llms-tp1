@@ -133,12 +133,16 @@ def test_el_modelo_puede_sobreajustar_un_lote_chico(df_sintetico):
 
 
 def test_early_stopping_corta_antes_del_maximo(df_sintetico):
-    pre = TabularPreprocessor().fit(df_sintetico)
-    ds = SupermarketDataset(df_sintetico, preprocessor=pre)
-    loader = DataLoader(ds, batch_size=16)
+    train_df = df_sintetico.iloc[:80].copy()
+    val_df = df_sintetico.iloc[80:].copy()
+    pre = TabularPreprocessor().fit(train_df)
+    train_ds = SupermarketDataset(train_df, preprocessor=pre)
+    val_ds = SupermarketDataset(val_df, preprocessor=pre)
+    train_loader = DataLoader(train_ds, batch_size=16)
+    val_loader = DataLoader(val_ds, batch_size=16)
     modelo = _modelo_chico(pre)
-    trainer = Trainer(modelo, TrainerConfig(epochs=50, patience=2, verbose=False, device="cpu"))
-    historial = trainer.fit(loader, loader)
+    trainer = Trainer(modelo, TrainerConfig(epochs=50, lr=0.01, patience=3, verbose=False, device="cpu"))
+    historial = trainer.fit(train_loader, val_loader)
     assert len(historial) < 50
     assert trainer.best_epoch >= 1
 

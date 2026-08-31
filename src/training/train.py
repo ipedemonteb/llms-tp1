@@ -65,13 +65,16 @@ def build_model(args, artefactos) -> BTRModel:
             num_direct=artefactos["num_direct"],
             embedding_cardinalities=artefactos["embedding_cardinalities"],
             onehot_cardinalities=artefactos["onehot_cardinalities"],
+            use_mlp=getattr(args, "tabular_mlp", False),
             d_tab=args.d_tab,
             dropout=args.dropout,
         ))
 
     # El modo 'cross' exige ambas ramas; con una sola se degrada a 'late'
     modo = args.fusion if (args.use_text and args.use_tabular) else "late"
-    fusion_config = FusionConfig(mode=modo, n_heads=args.n_heads, dropout=args.dropout)
+    d_text = text_encoder.config.d_model if text_encoder is not None else 0
+    d_tab = tabular_encoder.output_dim if tabular_encoder is not None else 0
+    fusion_config = FusionConfig(mode=modo, d_text=d_text, d_tab=d_tab, n_heads=args.n_heads, dropout=args.dropout)
 
     return BTRModel(text_encoder=text_encoder, tabular_encoder=tabular_encoder, fusion_config=fusion_config)
 
@@ -128,7 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
                         choices=["sinusoidal", "learned", "none"])
 
     # Rama tabular y fusión
-    parser.add_argument("--d_tab", type=int, default=32)
+    parser.add_argument("--tabular_mlp", action="store_true", default=False,
+                        help="Si True, pasa las variables tabulares por un MLP intermedio antes de fusionar. Por defecto False (sin MLP intermedio).")
+    parser.add_argument("--no_tabular_mlp", dest="tabular_mlp", action="store_false",
+                        help="Desactiva el MLP intermedio de la rama tabular (comportamiento por defecto).")
+    parser.add_argument("--d_tab", type=int, default=32,
+                        help="Dimensión de salida de la rama tabular si --tabular_mlp está activo.")
     parser.add_argument("--fusion", type=str, default="late", choices=["late", "cross"])
 
     # Entrenamiento

@@ -290,8 +290,11 @@ class TabularEncoderConfig:
         embedding_cardinalities: Cardinalidades de las variables de Entity Embeddings.
         embedding_dims: Dimensiones para cada embedding (si es None aplica min(50, ceil(card / 2))).
         onehot_cardinalities: Cardinalidades de las variables One-Hot.
-        hidden_dims: Dimensiones de las capas ocultas del MLP tabular.
-        d_tab: Dimensión del vector de salida e_tab.
+        use_mlp: Si True, pasa la concatenación de variables por un MLP intermedio para proyectar a d_tab.
+                 Si False (default), concatena directamente las representaciones tabulares crudas
+                 (embeddings + one-hot + numéricas + directas) sin MLP intermedio.
+        hidden_dims: Dimensiones de las capas ocultas del MLP tabular (solo si use_mlp=True).
+        d_tab: Dimensión del vector de salida e_tab (solo si use_mlp=True).
         dropout: Probabilidad de dropout en las capas ocultas.
         activation: Activación no lineal ('gelu' o 'relu').
         use_batchnorm: Si True, aplica BatchNorm1d a las numéricas antes de concatenar.
@@ -302,6 +305,7 @@ class TabularEncoderConfig:
     embedding_cardinalities: List[int] = field(default_factory=list)
     embedding_dims: Optional[List[int]] = None
     onehot_cardinalities: List[int] = field(default_factory=list)
+    use_mlp: bool = False
     hidden_dims: List[int] = field(default_factory=lambda: [64])
     d_tab: int = 32
     dropout: float = 0.1
@@ -333,8 +337,13 @@ class TabularEncoderConfig:
 
     @property
     def input_dim(self) -> int:
-        """Dimensión total que ingresa a la primera capa del MLP tabular."""
+        """Dimensión total que ingresa a la primera capa del MLP tabular o va directa a fusión."""
         return self.num_numeric + self.num_direct + self.embedding_output_dim + self.onehot_output_dim
+
+    @property
+    def output_dim(self) -> int:
+        """Dimensión de salida de la rama tabular."""
+        return self.d_tab if self.use_mlp else self.input_dim
 
 
 class TabularEncoder(nn.Module):
@@ -345,7 +354,7 @@ class TabularEncoder(nn.Module):
     2. Directas -> passthrough.
     3. Categóricas Embedding -> nn.Embedding por variable -> concatenación.
     4. Categóricas One-Hot -> F.one_hot por variable -> concatenación.
-    5. Concatenación total -> MLP -> e_tab (B, d_tab).
+    5. Concatenación total -> MLP opcional (si use_mlp=True) o Passthrough (si use_mlp=False) -> e_tab.
     """
 
     def __init__(self, config: TabularEncoderConfig) -> None:
@@ -362,18 +371,21 @@ class TabularEncoder(nn.Module):
             for card, dim in zip(config.embedding_cardinalities, config.embedding_dims or [])
         ])
 
-        act = nn.GELU() if config.activation.lower() == "gelu" else nn.ReLU()
-        capas: List[nn.Module] = []
-        dim_previa = config.input_dim
-        for dim_oculta in config.hidden_dims:
-            capas.append(nn.Linear(dim_previa, dim_oculta))
-            if config.use_batchnorm:
-                capas.append(nn.BatchNorm1d(dim_oculta))
-            capas.append(act)
-            capas.append(nn.Dropout(config.dropout))
-            dim_previa = dim_oculta
-        capas.append(nn.Linear(dim_previa, config.d_tab))
-        self.mlp = nn.Sequential(*capas)
+        if config.use_mlp:
+            act = nn.GELU() if config.activation.lower() == "gelu" else nn.ReLU()
+            capas: List[nn.Module] = []
+            dim_previa = config.input_dim
+            for dim_oculta in config.hidden_dims:
+                capas.append(nn.Linear(dim_previa, dim_oculta))
+                if config.use_batchnorm:
+                    capas.append(nn.BatchNorm1d(dim_oculta))
+                capas.append(act)
+                capas.append(nn.Dropout(config.dropout))
+                dim_previa = dim_oculta
+            capas.append(nn.Linear(dim_previa, config.d_tab))
+            self.mlp = nn.Sequential(*capas)
+        else:
+            self.mlp = nn.Identity()
 
         self._init_weights()
 
@@ -428,6 +440,11 @@ class TabularEncoder(nn.Module):
         x = torch.cat(partes, dim=1)
         return self.mlp(x)
 
+    @property
+    def output_dim(self) -> int:
+        """Dimensión real del vector e_tab emitido por el encoder."""
+        return self.config.output_dim
+
     def get_num_params(self) -> int:
         """Cantidad total de parámetros entrenables."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -472,32 +489,49 @@ def run_smoke_tests() -> None:
     assert torch.all((x_num_tr[:, n_num:] == 0.0) | (x_num_tr[:, n_num:] == 1.0))
     print("✅ [2/5] Variable directa has_allergens preservada como 0/1.")
 
-    # 4. Forward del TabularEncoder
-    cfg = TabularEncoderConfig(
+    # 4. Forward del TabularEncoder sin MLP intermedio (default: use_mlp=False)
+    cfg_direct = TabularEncoderConfig(
         num_numeric=len(pre.numeric_fields),
         num_direct=len(pre.direct_fields),
         embedding_cardinalities=[pre.embedding_cardinalities[c] for c in pre.embedding_fields],
         onehot_cardinalities=[pre.onehot_cardinalities[c] for c in pre.onehot_fields],
+        use_mlp=False,
     )
-    enc = TabularEncoder(cfg)
-    enc.eval()
+    enc_direct = TabularEncoder(cfg_direct)
+    enc_direct.eval()
     with torch.no_grad():
-        e_tab = enc(x_num_tr[:8], x_cat_tr[:8])
-    assert e_tab.shape == (8, cfg.d_tab)
-    print(f"✅ [3/5] Forward TabularEncoder: entrada {cfg.input_dim} dims -> e_tab {tuple(e_tab.shape)} | {enc.get_num_params():,} params")
+        e_tab_dir = enc_direct(x_num_tr[:8], x_cat_tr[:8])
+    assert e_tab_dir.shape == (8, cfg_direct.input_dim)
+    print(f"✅ [3/5] Forward TabularEncoder (use_mlp=False): entrada {cfg_direct.input_dim} dims -> e_tab directo {tuple(e_tab_dir.shape)} | {enc_direct.get_num_params():,} params")
 
-    # 5. Backward pass
-    enc.train()
-    salida = enc(x_num_tr[:32], x_cat_tr[:32])
+    # 5. Forward del TabularEncoder con MLP intermedio (use_mlp=True)
+    cfg_mlp = TabularEncoderConfig(
+        num_numeric=len(pre.numeric_fields),
+        num_direct=len(pre.direct_fields),
+        embedding_cardinalities=[pre.embedding_cardinalities[c] for c in pre.embedding_fields],
+        onehot_cardinalities=[pre.onehot_cardinalities[c] for c in pre.onehot_fields],
+        use_mlp=True,
+        d_tab=32,
+    )
+    enc_mlp = TabularEncoder(cfg_mlp)
+    enc_mlp.eval()
+    with torch.no_grad():
+        e_tab_mlp = enc_mlp(x_num_tr[:8], x_cat_tr[:8])
+    assert e_tab_mlp.shape == (8, 32)
+    print(f"   -> Forward TabularEncoder (use_mlp=True): e_tab proyectado {tuple(e_tab_mlp.shape)} | {enc_mlp.get_num_params():,} params")
+
+    # 6. Backward pass
+    enc_direct.train()
+    salida = enc_direct(x_num_tr[:32], x_cat_tr[:32])
     salida.sum().backward()
     sin_nan = all(
         p.grad is not None and not torch.isnan(p.grad).any()
-        for p in enc.parameters() if p.requires_grad
+        for p in enc_direct.parameters() if p.requires_grad
     )
     assert sin_nan, "Falló el flujo de gradientes."
     print("✅ [4/5] Backward pass verificado sin NaN.")
 
-    # 6. Round-trip del artefacto JSON
+    # 7. Round-trip del artefacto JSON
     tmp = Path("resources/preprocessor/tabular_preprocessor.json")
     pre.save(tmp)
     pre2 = TabularPreprocessor.from_file(tmp)

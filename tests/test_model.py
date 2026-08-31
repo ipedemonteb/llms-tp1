@@ -28,10 +28,10 @@ def _texto(pooling="mean"):
     ))
 
 
-def _tabular():
+def _tabular(use_mlp: bool = False):
     return TabularEncoder(TabularEncoderConfig(
         num_numeric=4, num_direct=1, embedding_cardinalities=[3, 4],
-        onehot_cardinalities=[5, 6], d_tab=D_TAB,
+        onehot_cardinalities=[5, 6], d_tab=D_TAB, use_mlp=use_mlp,
     ))
 
 
@@ -137,13 +137,21 @@ def test_cross_sin_ambas_ramas_lanza_error():
 
 
 def test_gradientes_llegan_a_ambas_ramas(lote):
-    modelo = BTRModel(_texto(), _tabular(), FusionConfig(mode="late"))
+    modelo = BTRModel(_texto(), _tabular(use_mlp=False), FusionConfig(mode="late"))
     modelo(**lote).sum().backward()
     grad_texto = modelo.text_encoder.embedding.weight.grad
-    grad_tabular = modelo.tabular_encoder.mlp[0].weight.grad
+    grad_tabular = modelo.tabular_encoder.embeddings[0].weight.grad
     assert grad_texto is not None and not torch.isnan(grad_texto).any()
     assert grad_tabular is not None and not torch.isnan(grad_tabular).any()
     assert grad_tabular.abs().sum() > 0
+
+
+def test_gradientes_con_tabular_mlp(lote):
+    modelo = BTRModel(_texto(), _tabular(use_mlp=True), FusionConfig(mode="late"))
+    modelo(**lote).sum().backward()
+    grad_mlp = modelo.tabular_encoder.mlp[0].weight.grad
+    assert grad_mlp is not None and not torch.isnan(grad_mlp).any()
+    assert grad_mlp.abs().sum() > 0
 
 
 def test_la_mascara_de_padding_cambia_el_resultado(lote):
@@ -173,10 +181,13 @@ def test_desglose_de_parametros_suma_el_total(lote):
 
 
 def test_tabular_y_modelo_producen_la_forma_correcta(lote):
-    tabular = _tabular()
-    assert tabular(lote["x_num"], lote["x_cat"]).shape == (B, D_TAB)
+    tabular = _tabular(use_mlp=False)
+    assert tabular(lote["x_num"], lote["x_cat"]).shape == (B, tabular.output_dim)
     modelo = BTRModel(_texto(), tabular)
     assert modelo(**lote).shape == (B,)
+
+    tabular_mlp = _tabular(use_mlp=True)
+    assert tabular_mlp(lote["x_num"], lote["x_cat"]).shape == (B, D_TAB)
 
 
 def test_muestras_independientes_en_el_batch(lote):

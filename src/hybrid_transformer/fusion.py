@@ -185,7 +185,7 @@ class BTRModel(nn.Module):
         self.tabular_encoder = tabular_encoder
 
         d_text = text_encoder.config.d_model if text_encoder is not None else 0
-        d_tab = tabular_encoder.config.d_tab if tabular_encoder is not None else 0
+        d_tab = tabular_encoder.output_dim if tabular_encoder is not None else 0
 
         if fusion_config is None:
             fusion_config = FusionConfig(d_text=d_text, d_tab=d_tab)
