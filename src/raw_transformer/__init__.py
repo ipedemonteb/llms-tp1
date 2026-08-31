@@ -8,6 +8,12 @@ sesgo inductivo sobre la estructura tabular.
 Ver `src/raw_transformer/PLAN.md` para el diseño completo del experimento.
 """
 
+from src.raw_transformer.dataset import (
+    RawSerializedDataset,
+    build_dataloaders,
+    build_datasets,
+    load_tokenizer,
+)
 from src.raw_transformer.model import (
     ClassificationHead,
     RawTransformerClassifier,
@@ -24,6 +30,10 @@ __all__ = [
     "ALL_FIELDS",
     "PRODUCT_ONLY_FIELDS",
     "ClassificationHead",
+    "RawSerializedDataset",
+    "build_dataloaders",
+    "build_datasets",
+    "load_tokenizer",
     "RawTransformerClassifier",
     "RawTransformerConfig",
     "build_raw_dataset",

@@ -230,9 +230,24 @@ Devuelve **logits crudos**, no probabilidades, para poder usar `BCEWithLogitsLos
 > gasta la mayor parte de su capacidad en representar tokens — incluidos los fragmentos
 > numéricos `Ġ61`, `Ġ69`, `.`, `25` — antes de razonar sobre ellos.
 
-### Fase 4 — Dataset + DataLoader ⬜
-`dataset.py`: `RawSerializedDataset` con tokenización anticipada y batches con claves
+### Fase 4 — Dataset + DataLoader ✅
+`dataset.py`: `RawSerializedDataset` con tokenización anticipada (todo el split de una vez
+en el constructor, no por fila en `__getitem__`) y batches con claves
 `input_ids` / `attention_mask` / `labels`, compatibles con el `Trainer` común (D6).
+Padding a longitud fija 256; shuffle solo en train, val/test en orden cronológico.
+
+- ✅ **Checkpoint superado:**
+
+| split | filas | BTR | truncadas | batches (bs=32) |
+|---|---|---|---|---|
+| train | 7.000 | 13,16% | **0** | 219 |
+| val | 1.500 | 12,20% | **0** | 47 |
+| test | 1.500 | 13,13% | **0** | 47 |
+
+- Cero secuencias truncadas → `max_seq_len=256` confirmado en la práctica
+- Tokens reales por fila: min 189, media 197, max 204
+- `pos_weight = 6,600` (calculado **solo sobre train**) para `BCEWithLogitsLoss`
+- Verificación end-to-end: el modelo consume un batch real y devuelve logits `(32,)`
 
 ### Fase 5 — Entrenamiento ⬜
 `train.py`: CLI fina sobre `src.training.trainer.Trainer` (D6), resultados en `results/runs_raw/`.
