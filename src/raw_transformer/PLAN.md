@@ -264,10 +264,34 @@ con el mismo formato de `summary.json` / `history.csv` / `checkpoint.pt` que las
 > confounder de D2: `all` incluye el contexto de búsqueda (`query_id`, `filter_*`) que el
 > hybrid no ve. La comparación honesta contra el hybrid es con el preset `product_only`.
 
-### Fase 6 — Evaluación y comparación ⬜
-- PR-AUC / ROC-AUC en test, contra el baseline del hybrid
-- Gráficos comparativos → `results/`
-- **Checkpoint:** conclusiones para la presentación
+### Fase 6 — Evaluación y comparación 🟡 (raw corrido; falta el hybrid)
+
+Primeras corridas (seed 42, `d_model=64`, 2 capas, 4 cabezales, AdamW lr=1e-3, batch 64,
+BCE sin ponderar, early stopping con patience 5 — mismos defaults que el hybrid):
+
+| Corrida | Campos | Mejor época | Val PR-AUC | **Test PR-AUC** | Test ROC-AUC | Test BCE | Lift |
+|---|---|---|---|---|---|---|---|
+| `raw_d64_L2_H4_s42` | `all` (20) | 6 | 0.6903 | **0.7552** | 0.9683 | 0.1446 | 5.75× |
+| `raw_po_d64_L2_H4_s42` | `product_only` (14) | 6 | 0.6855 | **0.6809** | 0.9618 | 0.1583 | 5.18× |
+| Predictor constante | — | — | — | 0.1313 | 0.5000 | — | 1× |
+
+Lecturas (con una sola semilla, a confirmar con más):
+- **El pelado no es trivial**: 5× de lift sobre la base con la fila cruda como texto.
+- **El contexto de búsqueda aporta** (+0.07 PR-AUC en test entre `all` y `product_only`),
+  aunque en validación las dos quedan casi iguales (0.690 vs 0.686) → la brecha de test
+  puede ser en parte ruido de semilla. Confirma el confounder de D2: la comparación
+  contra el hybrid tiene que ser con `product_only`.
+- **Predicción #3 confirmada — sobreajusta temprano**: ambas corridas tocan su máximo en
+  la época 6 y de ahí el train PR-AUC sigue subiendo (→ 0.80–0.84) mientras el de val
+  cae (→ 0.57–0.58) y la loss de val crece. Early stopping cortó las dos en la época 11.
+
+Pendiente:
+- [ ] Regenerar los datasets del hybrid (`clean_dataset` + `build_transformer_dataset`) y
+  correr sus configs (`baseline_texto`, `baseline_tabular`, `late_fusion`, `cross_attention`)
+  con la misma seed para la comparación controlada (predicciones #1 y #2)
+- [ ] Multi-seed (3+) para que la diferencia `all` vs `product_only` y raw vs hybrid sea
+  pareada por semilla, como hace `src/training/aggregate.py`
+- [ ] Gráficos comparativos → `results/`
 
 ---
 
