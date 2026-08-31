@@ -206,9 +206,29 @@ En cambio las categóricas sobreviven intactas (`ĠFrozen` es un único token), 
 la predicción #2**: la brecha contra el hybrid debería venir de las numéricas, no de las
 categóricas.
 
-### Fase 3 — Modelo ⬜
+### Fase 3 — Modelo ✅
 `model.py`: `RawTransformerClassifier` = `TextTransformerEncoder` (importado sin modificar)
-+ `ClassificationHead`. Devuelve **logits crudos** para `BCEWithLogitsLoss`.
++ `ClassificationHead` (LayerNorm → Dropout → Linear → GELU → Dropout → Linear).
+
+Devuelve **logits crudos**, no probabilidades, para poder usar `BCEWithLogitsLoss`
+(estable numéricamente y con soporte de `pos_weight` para el desbalance del 13%).
+
+- ✅ **Checkpoint superado.** 5 smoke tests: shapes, rango [0,1] de la sigmoide,
+  máscara de padding efectiva (delta = 0), flujo de gradientes hasta los embeddings,
+  y exposición de los mapas de atención para XAI.
+
+**Conteo de parámetros** (`d_model=64`, 2 capas, `max_seq_len=256`):
+
+| Componente | Parámetros | |
+|---|---|---|
+| Tabla de embeddings | 131.072 | 56% |
+| Encoder (2 bloques) | 100.096 | 42% |
+| Cabeza de clasificación | 4.353 | 2% |
+| **Total** | **235.521** | |
+
+> 📌 Más de la mitad de los parámetros son la tabla de embeddings (2048 × 64). El modelo
+> gasta la mayor parte de su capacidad en representar tokens — incluidos los fragmentos
+> numéricos `Ġ61`, `Ġ69`, `.`, `25` — antes de razonar sobre ellos.
 
 ### Fase 4 — Dataset + DataLoader ⬜
 `dataset.py`: `RawSerializedDataset` con tokenización anticipada y batches con claves
