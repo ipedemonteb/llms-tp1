@@ -8,10 +8,14 @@
 
 ## 1. Contexto y Motivación
 
-El sistema actual de predicción de BTR opera exclusivamente sobre **atributos del producto**: texto
-(título, descripción, ingredientes) y variables tabulares (precio, categoría, marca, etc.). Esto
-significa que para un mismo producto, el modelo predice siempre la misma probabilidad de compra,
-independientemente de quién lo esté mirando.
+El sistema actual de predicción de BTR se construye casi por completo sobre **atributos del
+producto**: texto (título, descripción, ingredientes) y variables tabulares (precio, categoría,
+marca, etc.). La única excepción es `price_span`, derivada del rango de precio que el usuario
+filtró en su búsqueda, que sí captura una señal de **intención** en el momento de la consulta.
+
+Pero esa señal es anónima y puntual: el modelo sabe qué rango de precio se filtró, no **quién**
+lo filtró ni qué compró esa persona antes. En consecuencia, para un mismo producto el sistema
+predice siempre la misma probabilidad de compra, independientemente de quién lo esté mirando.
 
 En la realidad, la probabilidad de compra depende fuertemente del **usuario**. Un usuario vegano
 tiene alta probabilidad de comprar leche de almendras; uno que prioriza precio buscará marcas
@@ -21,49 +25,133 @@ económicas. Incorporar este factor de personalización requiere:
 2. Definir **qué features del usuario** se utilizarán.
 3. Decidir **dónde y cómo** integrar la representación del usuario en la arquitectura existente.
 
+### El BTR deja de ser una propiedad del producto
+
+La consecuencia de fondo excede lo arquitectónico y alcanza a la **definición misma de la
+métrica**. Hoy el BTR es una propiedad del producto: un número por ítem del catálogo, que responde
+a la pregunta *"¿qué tan probable es que este producto se compre?"*. Con personalización pasa a
+ser una propiedad del par **(usuario, producto)**: `P(compra | usuario, producto)`.
+
+Eso redefine también el objetivo de negocio planteado en la consigna. *"Identificar los mejores
+productos y promocionarlos en otras áreas del e-commerce"* deja de resolverse con un único ranking
+global del catálogo y pasa a requerir **un ranking por usuario**: el mejor producto para promocionar
+ya no es el mismo para todos.
+
 ---
 
 ## 2. Features de Personalización del Usuario
 
-Se propone representar al usuario mediante un conjunto de **features agregadas** que resumen su
-comportamiento histórico en la plataforma. Estas variables se calculan como estadísticos sobre el
-historial de interacciones del usuario (productos vistos, añadidos al carrito y comprados).
+> [!IMPORTANT]
+> **Supuesto de partida.** `supermarket_products.csv` no contiene identificador de usuario: cada
+> fila es una impresión anónima. Todo lo que sigue asume que el dataset se extiende con un campo
+> `user_id` y con el historial de interacciones asociado a cada usuario. Ese es el insumo mínimo
+> sin el cual ninguna forma de personalización es posible, y es el primer requisito que el
+> sistema debería satisfacer antes de implementar lo que se describe a continuación.
 
-### 2.1. Features Numéricas Continuas
+Bajo ese supuesto, se propone representar al usuario mediante un conjunto de **features
+agregadas** que resumen su comportamiento histórico en la plataforma. Estas variables se calculan
+como estadísticos sobre el historial de compras del usuario, previo al momento de la impresión
+que se está evaluando.
 
-| Feature | Descripción | Justificación |
+### 2.1. Criterio de Selección: Alineación con los Atributos del Producto
+
+La personalización no surge de describir al usuario en abstracto, sino de **compararlo con el
+producto que se está evaluando**. Un dato como "este usuario gasta $6 en promedio" no dice nada
+por sí solo: adquiere significado únicamente frente al `price = 12` del producto actual. Por eso
+el criterio de selección adoptado es que **cada feature del usuario viva sobre el mismo eje que
+un atributo del producto**, de modo que el modelo pueda calcular una comparación entre ambos.
+
+| Feature de usuario | Qué representa | Contraparte en el producto |
 |:---|:---|:---|
-| `avg_purchase_price` | Precio promedio de los productos comprados | Sensibilidad al precio del usuario |
-| `purchase_count` | Cantidad total de compras históricas | Nivel de actividad / engagement |
-| `avg_nutrition_score` | Promedio de puntuación nutricional de productos comprados | Preferencia por productos saludables |
-| `purchase_frequency` | Compras por semana (promedio) | Frecuencia de uso de la plataforma |
-| `avg_basket_size` | Cantidad promedio de productos por sesión de compra | Patrón de compra (bulk vs. puntual) |
-| `category_diversity` | Cantidad de categorías distintas compradas / total de categorías | Amplitud de intereses del usuario |
-| `organic_ratio` | Proporción de productos orgánicos comprados | Preferencia por productos orgánicos |
-| `days_since_last_purchase` | Días transcurridos desde la última compra | Recencia de la actividad |
+| `avg_purchase_price` | Precio promedio de lo que compra: sensibilidad al precio absoluto | `price` |
+| `avg_price_per_oz` | Precio promedio por onza: si busca rendimiento o conveniencia | `price_per_oz` |
+| `avg_nutrition_score` | Puntuación nutricional promedio: preferencia por productos saludables | `nutrition_score` |
+| `category_shares` | Proporción de compras en cada categoría: afinidad por categoría | `category` |
+| `brand_shares` | Proporción de compras de cada marca: lealtad de marca | `brand` |
+| `allergen_avoidance` | Proporción de compras que declaran cada alérgeno: restricción alimentaria | `allergens` |
+| `preferred_storage_type` | Tipo de almacenamiento más frecuente: hábito de compra (fresco vs. despensa) | `storage_type` |
+| `purchase_frequency` | Compras por semana: nivel de actividad en la plataforma | - |
+| `days_since_last_purchase` | Días desde la última compra: recencia de la actividad | - |
 
-Estas variables recibirían el mismo tratamiento que las numéricas del producto en el
-`TabularEncoder` actual: compresión `log1p` para las que presentan asimetría
-(`purchase_count`, `days_since_last_purchase`) y estandarización z-score ajustada sobre
-el split de entrenamiento.
+Todas las contrapartes son variables que **ya existen en el `TabularPreprocessor` del producto**,
+con sus vocabularios y sus escalas ya ajustados sobre el split de entrenamiento. No se introducen
+categorías nuevas ni ejes que el sistema actual no maneje.
 
-### 2.2. Features Categóricas
+### 2.2. Cómo se Conecta Cada Feature con su Contraparte
 
-| Feature | Descripción | Codificación |
-|:---|:---|:---|
-| `preferred_category` | Categoría con mayor frecuencia de compra | Entity Embedding |
-| `preferred_brand` | Marca con mayor frecuencia de compra | Entity Embedding |
-| `preferred_storage_type` | Tipo de almacenamiento más frecuente (`Ambient`, `Refrigerated`, `Frozen`) | One-Hot |
+La comparación toma tres formas distintas según el tipo de eje:
 
-Los vocabularios de estas variables categóricas son los mismos que ya existen en el
-`TabularPreprocessor` del producto, por lo que no se introducen categorías nuevas.
+* **Ejes continuos** (`avg_purchase_price`, `avg_price_per_oz`, `avg_nutrition_score`): la
+  comparación es de **posición relativa**. El modelo no evalúa si el producto es caro o sano en
+  términos absolutos, sino si lo es *para este usuario*. Un producto de $12 es una anomalía para
+  quien promedia $6 y una compra rutinaria para quien promedia $20, y el par de valores le da al
+  clasificador todo lo necesario para distinguir ambos casos.
 
-### 2.3. ¿Por qué un MLP y no un Transformer?
+* **Ejes categóricos con distribución** (`category_shares`, `brand_shares`,
+  `allergen_avoidance`): la comparación es una **búsqueda indexada**. El valor categórico del
+  producto actual selecciona la componente correspondiente del vector del usuario, y esa
+  componente es directamente la afinidad del usuario hacia *este* producto en particular. Si el
+  producto es de categoría `Dairy`, lo que importa es la proporción de compras en `Dairy` de ese
+  usuario, no cuál es su categoría favorita en general.
+
+  Es la razón por la que estas tres se definen como **vectores de proporciones y no como el
+  valor más frecuente (`argmax`)**. Un usuario que reparte sus compras 30% `Dairy` / 28%
+  `Produce` / 25% `Bakery` quedaría representado igual que uno que compra 100% `Dairy`, y se
+  perdería justamente la información que permite evaluar productos fuera de la categoría
+  dominante. `allergen_avoidance` opera con el signo invertido: una proporción cercana a cero
+  sostenida sobre un historial extenso es la señal de evitación (por ejemplo, un usuario celíaco
+  frente a un producto con `allergens = Wheat`).
+
+* **Ejes categóricos de baja cardinalidad** (`preferred_storage_type`, con 3 valores): la
+  comparación se reduce a **coincidencia o no coincidencia** con el `storage_type` del producto.
+  Con tan pocos valores el `argmax` no pierde información relevante y basta con One-Hot.
+
+### 2.3. Preferencia vs. Propensión: Dos Roles Distintos
+
+Las nueve features no cumplen la misma función, y la distinción es la que ordena toda la
+integración arquitectónica de la sección 3.
+
+**Las siete primeras son features de preferencia.** Tienen contraparte en el producto, por lo que
+**reordenan**: ante el mismo catálogo, dos usuarios distintos obtienen rankings distintos. Son las
+que producen el efecto que pide la consigna — que el BTR deje de ser una propiedad del producto y
+pase a ser una propiedad del par (usuario, producto).
+
+**Las dos últimas son features de propensión.** No tienen contraparte, y esa ausencia no es un
+descuido sino una consecuencia de lo que miden: `purchase_frequency` y `days_since_last_purchase`
+describen *cuánto* compra el usuario, no *qué* compra. Su efecto es un desplazamiento del nivel
+base de probabilidad: suben o bajan el score de **todos** los productos por igual, sin alterar el
+orden entre ellos. Un usuario que hace tres compras por semana tiene más probabilidad de comprar
+cualquier cosa que uno inactivo hace dos meses, pero eso no dice nada sobre cuál de los productos
+del catálogo le conviene mostrarle.
+
+Se conservan porque el BTR es una probabilidad y calibrar su nivel por usuario es parte del
+problema, no un agregado. Pero el rol diferenciado tiene una consecuencia concreta sobre dónde
+inyectar cada bloque, que se desarrolla en la sección 3: **solo las features de preferencia
+enriquecen el Query del cross-attention**, porque solo ellas pueden determinar qué tokens del
+texto son relevantes; la propensión entra únicamente en la concatenación previa al clasificador.
+
+### 2.4. Preprocesamiento
+
+Las features reciben el mismo tratamiento que sus contrapartes en el `TabularEncoder` actual:
+
+* **Continuas** (`avg_purchase_price`, `avg_price_per_oz`, `avg_nutrition_score`): estandarización
+  z-score ajustada exclusivamente sobre el split de entrenamiento, con `log1p` previo en
+  `avg_price_per_oz` por su asimetría, replicando el criterio ya aplicado a `price_per_oz`.
+* **Propensión** (`purchase_frequency`, `days_since_last_purchase`): `log1p` seguido de z-score,
+  por tratarse de distribuciones de cola larga.
+* **Vectores de proporciones** (`category_shares`, `brand_shares`, `allergen_avoidance`): ya
+  acotados en $[0, 1]$ y sumando 1 por construcción, ingresan sin transformación adicional. Sus
+  dimensiones quedan fijadas por los vocabularios existentes del preprocesador (12 categorías,
+  15 marcas, 8 alérgenos).
+* **Categórica** (`preferred_storage_type`): One-Hot sobre el mismo vocabulario de 3 valores del
+  producto.
+
+### 2.5. ¿Por qué un MLP y no un Transformer?
 
 Estas features son un **vector tabular de dimensión fija**: un conjunto de estadísticos
 precomputados que no tienen estructura secuencial ni dependencias posicionales entre sí. La
-relación entre `avg_purchase_price` y `organic_ratio` no depende del orden en que se presenten,
-sino de su valor conjunto.
+relación entre `avg_purchase_price` y `avg_nutrition_score` no depende del orden en que se
+presenten, sino de su valor conjunto.
 
 Un Transformer sobre este tipo de entrada no aportaría beneficio: el mecanismo de self-attention
 está diseñado para capturar dependencias entre posiciones de una secuencia, y aquí no hay
@@ -85,11 +173,11 @@ Paso 1:  TabularEncoder(x_num, x_cat)           →  e_tab ∈ ℝ^d_tab
 Paso 2:  TextTransformerEncoder(input_ids, mask) →  H_text ∈ ℝ^(T × d_text)
                     ↑ internamente usa self-attention (cada token atiende a otros tokens)
 
-Paso 3:  CrossAttentionFusion(H_text, e_tab)     →  e_text ∈ ℝ^d_text
+Paso 3:  CrossAttentionFusion(H_text, e_tab)     →  e_cross ∈ ℝ^d_text
                     ↑ Q = e_tab · W_Q,  K,V = H_text · W_K, H_text · W_V
                     ↑ El producto "pregunta" a su propio texto qué es relevante
 
-Paso 4:  concat(e_text, e_tab)                   →  vector fusionado ∈ ℝ^(d_text + d_tab)
+Paso 4:  concat(e_cross, e_tab)                  →  vector fusionado ∈ ℝ^(d_text + d_tab)
 Paso 5:  ClassifierHead(vector fusionado)         →  logit de compra
 ```
 
@@ -99,62 +187,89 @@ de texto, donde las features tabulares del producto condicionan qué tokens reci
 
 ### 3.2. Sistema Propuesto (con personalización)
 
-Se introduce un `UserEncoder` (MLP) como tercera rama. La modificación clave es que el **Query
-del cross-attention se enriquece con información del usuario**, de modo que la selección de
-tokens relevantes del texto queda condicionada tanto por el perfil del producto como por las
-preferencias del usuario.
+Se introduce un `UserEncoder` (MLP) como tercera rama. Siguiendo la distinción de la sección 2.3,
+**el encoder emite dos vectores en lugar de uno**: `e_pref`, con los siete ejes que tienen
+contraparte en el producto, y `e_prop`, con las dos features de actividad. Cada uno se inyecta en
+un punto distinto de la arquitectura.
 
 ```
 Paso 1:  TabularEncoder(x_num, x_cat)           →  e_tab  ∈ ℝ^d_tab
-Paso 2:  UserEncoder(x_user)                    →  e_user ∈ ℝ^d_user
+Paso 2:  UserEncoder(x_user)                    →  e_pref ∈ ℝ^d_pref   (preferencia)
+                                                →  e_prop ∈ ℝ^d_prop   (propensión)
 Paso 3:  TextTransformerEncoder(input_ids, mask) →  H_text ∈ ℝ^(T × d_text)
                     ↑ no cambia nada internamente
 
-Paso 4:  q = concat(e_tab, e_user)               →  Query combinado ∈ ℝ^(d_tab + d_user)
-Paso 5:  CrossAttentionFusion(H_text, q)          →  e_text ∈ ℝ^d_text
-                    ↑ Q = concat(e_tab, e_user) · W_Q,  K,V = H_text · W_K, H_text · W_V
-                    ↑ Producto Y usuario "preguntan juntos" al texto
+Paso 4:  q = concat(e_tab, e_pref)               →  Query combinado ∈ ℝ^(d_tab + d_pref)
+Paso 5:  CrossAttentionFusion(H_text, q)          →  e_cross ∈ ℝ^d_text
+                    ↑ Q = concat(e_tab, e_pref) · W_Q,  K,V = H_text · W_K, H_text · W_V
+                    ↑ Producto Y preferencias del usuario "preguntan juntos" al texto
 
-Paso 6:  concat(e_text, e_tab, e_user)            →  vector fusionado ∈ ℝ^(d_text + d_tab + d_user)
+Paso 6:  concat(e_cross, e_tab, e_pref, e_prop)   →  vector fusionado
+                                                     ∈ ℝ^(d_text + d_tab + d_pref + d_prop)
 Paso 7:  ClassifierHead(vector fusionado)          →  logit de compra personalizado
 ```
 
-### 3.3. ¿Qué cambia concretamente?
+**Por qué la propensión no entra al Query.** El Query determina qué tokens del texto del producto
+se leen con más peso. "Este usuario compra tres veces por semana" no puede responder esa
+pregunta: no hay ningún token de la descripción que sea más o menos relevante según la frecuencia
+de compra. En cambio sí desplaza el nivel base de probabilidad, y ese efecto se captura
+correctamente en la concatenación del Paso 6. Inyectarla en el Query solo agregaría parámetros
+sin señal aprovechable.
 
-| Componente | Sistema Actual | Sistema Propuesto |
-|:---|:---|:---|
-| `TextTransformerEncoder` | Sin cambios | Sin cambios |
-| `TabularEncoder` | Sin cambios | Sin cambios |
-| `UserEncoder` | No existe | **Nuevo:** MLP análogo al `TabularEncoder` |
-| `CrossAttentionFusion.q_proj` | `nn.Linear(d_tab, d_text)` | `nn.Linear(d_tab + d_user, d_text)` |
-| `FusionConfig.fused_dim` | `d_text + d_tab` | `d_text + d_tab + d_user` |
-| `ClassifierHead` | `input_dim = d_text + d_tab` | `input_dim = d_text + d_tab + d_user` |
-| `BTRModel.forward()` | Recibe `input_ids, mask, x_num, x_cat` | Recibe adicionalmente `x_user` |
+**Dimensionamiento y necesidad del MLP.** Las nueve features ocupan **43 dimensiones crudas**
+(12 categorías + 15 marcas + 8 alérgenos + 3 storage + 3 continuas + 2 de propensión). En la
+configuración ganadora del Ejercicio 2 (`d_text = 8`, `d_tab = 66`), un `e_user` sin proyectar
+sería más de cinco veces mayor que `e_text` y dominaría el vector fusionado, que pasaría de 74 a
+117 dimensiones. Por eso el `UserEncoder` **sí** usa MLP proyector, a diferencia del
+`TabularEncoder` ganador que corre con `use_mlp=False`: la decisión no es estética sino de
+balance entre modalidades.
 
-La arquitectura interna del Transformer (self-attention, positional encoding, feed-forward) no
-se modifica. El cambio se concentra en el **módulo de fusión** y en el **clasificador final**.
+**Compatibilidad con el modo `late`.** El sistema soporta las dos estrategias de fusión y la
+ablación del Ejercicio 2 las compara. En modo `late` no hay Query que enriquecer, de modo que
+`e_pref` y `e_prop` entran únicamente en la concatenación final. La personalización queda así
+disponible en ambos modos y el diseño sigue siendo conmutable, igual que el resto del sistema.
 
-### 3.4. Intuición del Efecto
+**Usuario sin perfil (cold start).** Un usuario nuevo no tiene historial del cual derivar las
+features. El mecanismo ya existe en el código: el `TabularEncoder` reserva `UNKNOWN_INDEX = 0`
+con `padding_idx` para categorías no vistas, lo que produce un vector nulo. La rama de usuario
+replica ese criterio (proporciones en cero, continuas imputadas con la media poblacional del
+split de entrenamiento), de modo que el sistema degrada de forma controlada al comportamiento no
+personalizado en lugar de fallar.
 
-Supongamos que el texto de un producto es:
+### 3.3. Intuición del Efecto
 
-> *"Cedar House Organic Almond Milk | Unsweetened plant-based milk. USDA certified organic.
-> No artificial flavors. | Almonds, Water, Salt"*
+Tomemos una fila real del dataset (`transformer_dataset_complete.csv`):
 
-- **Sin personalización** (sistema actual): el Query se construye solo con `e_tab` (precio,
-  categoría, etc.). El cross-attention pondera los tokens según las características del producto.
-  La salida es la misma para todos los usuarios.
+> *"Green Fork Organic Avocados | New Listing | Organic avocados in a 3 lb package for online
+> grocery orders. Listed under produce and intended for ambient storage. Limited customer
+> feedback so far. | Whole produce | Thailand | No Allergens"*
+>
+> `price = 2.96` · `category = Produce` · `nutrition_score = 99` · `price_per_oz = 0.059`
 
-- **Con personalización**: si el usuario tiene `organic_ratio = 0.85` y
-  `preferred_category = Dairy`, su `e_user` codifica una fuerte preferencia por productos
-  orgánicos y lácteos/sustitutos. El Query combinado `concat(e_tab, e_user)` genera pesos de
-  atención que enfatizan los tokens *"Organic"*, *"plant-based"*, *"USDA"*, *"Almond Milk"*.
-  El resumen `e_text` resultante captura los aspectos del producto que son relevantes **para
-  este usuario en particular**, lo que produce una probabilidad de compra más alta.
+**Sin personalización** (sistema actual): el Query se construye solo con `e_tab`. La atención
+pondera los tokens según las características del producto y la salida es idéntica para todos los
+usuarios.
 
-  Para otro usuario con `organic_ratio = 0.05` y `preferred_category = Snacks`, los mismos
-  tokens recibirían pesos bajos, y el `e_text` resultante sería más "tibio", reflejando menor
-  afinidad con el producto.
+**Con personalización**, el efecto se produce por dos vías distintas que conviene no confundir:
+
+**a) El Query cambia *qué se lee* del producto.** Para un usuario con
+`category_shares[Produce] = 0.40` y `avg_nutrition_score = 88`, el Query combinado
+`concat(e_tab, e_pref)` desplaza los pesos de atención hacia los tokens *"Organic"*, *"produce"*
+y *"Whole produce"*. Para un usuario con `category_shares[Snacks] = 0.55` y
+`avg_nutrition_score = 41`, esos mismos tokens reciben menos peso y el resumen se apoya en otras
+partes de la secuencia. El resultado es que `e_cross` **es un vector distinto para cada usuario**:
+el mismo producto se resume de forma diferente según quién lo mira.
+
+**b) La concatenación final determina *cuánto le gusta*.** Es importante notar que la vía anterior
+no sube ni baja el score por sí sola: la salida del cross-attention es una combinación convexa de
+los vectores value, de modo que el Query puede cambiar qué tokens se leen pero no la escala del
+resultado. El desplazamiento efectivo de la probabilidad ocurre en el Paso 6, donde el
+clasificador compara directamente los ejes alineados de la sección 2: `nutrition_score = 99`
+contra un `avg_nutrition_score` de 88 (afín) o de 41 (disonante), `price = 2.96` contra un
+`avg_purchase_price` de 3.20 (dentro del rango habitual) o de 9.50 (fuera de él).
+
+Sobre esas dos vías, `e_prop` aplica el último ajuste: un usuario activo esta semana recibe
+scores más altos en **todos** los productos por igual, sin que cambie el orden entre ellos.
 
 ---
 
@@ -170,41 +285,46 @@ previamente (visto, añadido al carrito o comprado), ordenado cronológicamente.
 Es importante aclarar que este `UserHistoryTransformer` sería un **Transformer completamente
 independiente** del `TextTransformerEncoder` existente. No se trata de agregar capas al
 Transformer de texto ni de encadenar sus salidas, sino de una **tercera rama paralela** que
-reemplaza al `UserEncoder` MLP propuesto en la sección 3. Desde la fusión en adelante, el
-sistema no distingue si `e_user` provino de un MLP o de un Transformer: en ambos casos es un
-vector de dimensión fija `d_user`.
+reemplaza al `UserEncoder` MLP propuesto en la sección 3. Concretamente sustituye al bloque de
+**preferencia**: su salida ocupa el lugar de `e_pref`, mientras que `e_prop` se sigue calculando
+igual (la frecuencia y la recencia no requieren un Transformer). Desde la fusión en adelante, el
+sistema no distingue si `e_pref` provino de un MLP o de un Transformer: en ambos casos es un
+vector de dimensión fija.
 
 Los dos Transformers procesan secuencias de naturaleza completamente distinta:
 
 | | TextTransformerEncoder (existente) | UserHistoryTransformer (nuevo) |
 |:---|:---|:---|
-| **Secuencia** | Tokens de texto del producto actual (subwords BPE) | Productos pasados que el usuario compró |
-| **Cada "token"** | Un subword: `"Organic"`, `"Milk"`, `"onds"` | Un producto entero: `prod₁`, `prod₂`, ... |
+| **Secuencia** | Tokens de texto del producto actual (subwords BPE) | Productos con los que el usuario interactuó previamente |
+| **Cada "token"** | Un subword: `"Organic"`, `"Avoc"`, `"ados"` | Un producto entero: `prod₁`, `prod₂`, ... |
 | **Largo típico** | ~128 subwords | ~últimas 20-50 compras |
 | **Self-attention captura** | Relaciones entre palabras del texto | Relaciones entre compras del usuario |
-| **Salida** | `H_text` → representación del producto actual | `e_user` → representación del usuario |
+| **Salida** | `H_text` → representación del producto actual | `e_pref` → representación del usuario |
 
 El siguiente diagrama muestra el flujo completo de las tres ramas independientes y cómo
 convergen en la fusión:
 
 ```
 RAMA 1 — Texto del producto actual (Transformer existente, no se modifica):
-  ["Organic", "Almond", "Milk", ...]  →  TextTransformerEncoder  →  H_text ∈ ℝ^(T × d_text)
+  ["Organic", "Avoc", "ados", ...]   →  TextTransformerEncoder  →  H_text ∈ ℝ^(T × d_text)
 
 RAMA 2 — Tabulares del producto actual (MLP existente, no se modifica):
-  [price=3.5, category=Dairy, ...]    →  TabularEncoder (MLP)    →  e_tab ∈ ℝ^d_tab
+  [price=2.96, category=Produce, ...] →  TabularEncoder (MLP)    →  e_tab ∈ ℝ^d_tab
 
 RAMA 3 — Historial del usuario (NUEVO Transformer, independiente):
-  [prod₁, prod₂, prod₃, ..., prodₙ]  →  UserHistoryTransformer  →  Pooling  →  e_user ∈ ℝ^d_user
+  [prod₁, prod₂, prod₃, ..., prodₙ]  →  UserHistoryTransformer  →  Pooling  →  e_pref
        ↑                                          ↑
        Cada producto es un embedding               Self-attention sobre la
        precomputado (ej. categoría +               secuencia de compras
        precio + marca proyectados)
 
+  [purchase_frequency, days_since_last_purchase]  →  MLP  →  e_prop
+       ↑ la propensión no requiere Transformer: se mantiene igual que en la sección 3
+
 FUSIÓN (igual que en la propuesta de la sección 3):
-  q = concat(e_tab, e_user)
-  CrossAttention(H_text, q)           →  e_text ∈ ℝ^d_text
-  concat(e_text, e_tab, e_user)       →  ClassifierHead  →  P(compra | usuario, producto)
+  q = concat(e_tab, e_pref)
+  CrossAttention(H_text, q)                 →  e_cross ∈ ℝ^d_text
+  concat(e_cross, e_tab, e_pref, e_prop)    →  ClassifierHead  →  P(compra | usuario, producto)
 ```
 
 Cada producto del historial se representaría con un **vector precomputado** (por ejemplo, la
@@ -219,30 +339,42 @@ de texto ya procesa el producto *actual* que se está evaluando.
   informativas que las antiguas, y que ciertas secuencias de compra son predictivas (ej.
   "compró leche y cereales → es probable que compre fruta").
 - **No requiere feature engineering manual**: no es necesario diseñar features agregadas como
-  `organic_ratio` o `preferred_category` — el modelo las descubre de manera implícita.
+  `category_shares` o `allergen_avoidance` — el modelo las descubre de manera implícita, ni
+  decidir a mano qué ejes tienen contraparte en el producto.
 - **Evolución de gustos**: al operar sobre la secuencia temporal, captura naturalmente cambios
   en las preferencias del usuario (ej. un usuario que migra de comida rápida a productos
   saludables).
-- **Estado del arte en recomendación**: esta arquitectura es la base de modelos como SASRec
-  (Self-Attentive Sequential Recommendation) y BERT4Rec, que representan el estado del arte
-  en sistemas de recomendación secuencial.
+- **Coherencia con el foco del TP**: la personalización pasaría a resolverse con el mismo
+  mecanismo que el resto del sistema — self-attention sobre una secuencia — en lugar de con un
+  MLP sobre features diseñadas a mano.
 
 ### 4.3. ¿Por qué no se elige esta alternativa?
 
 1. **Complejidad de implementación**: requiere un segundo Transformer completo, con su propia
    gestión de secuencias, padding, y positional encoding. Duplica la complejidad arquitectónica
    del sistema.
-2. **Costo computacional**: el entrenamiento requiere procesar dos Transformers por cada ejemplo
-   (uno para el texto del producto, otro para el historial del usuario), lo que incrementa
-   significativamente el tiempo de entrenamiento y los recursos necesarios.
+2. **Costo de datos por ejemplo**: el peso no está tanto en el forward — un Transformer sobre 20-50
+   ítems con `d_model` chico es incluso más barato que el de texto sobre 128 tokens — sino en que
+   **cada ejemplo de entrenamiento arrastra el historial completo del usuario** en memoria y en
+   I/O. Y como ese historial cambia en cada instante de tiempo, no puede precomputarse ni
+   cachearse: hay que reconstruirlo para cada impresión.
 3. **Requisitos de datos**: necesita un historial suficientemente largo por usuario para que el
    Transformer pueda aprender patrones secuenciales útiles. Usuarios con pocas interacciones
    generarían secuencias cortas y ruidosas.
-4. **Cold start severo**: usuarios completamente nuevos no tendrían secuencia alguna, lo que
-   obliga a implementar un fallback al modelo sin personalización.
-5. **Scope del ejercicio**: el foco del TP es demostrar comprensión de la arquitectura Transformer
-   y su integración. La propuesta del MLP con Query combinado ya logra ese objetivo de manera
-   concisa y coherente con el sistema existente.
+4. **Cold start con umbral, no gradual**: ambas propuestas sufren cuando falta historial, pero de
+   forma distinta. Las features agregadas **degradan suavemente**: con tres compras las
+   proporciones ya son imperfectas pero informativas, y el vector existe. El Transformer de
+   secuencia **degrada por umbral**: con uno o dos ítems la self-attention no tiene sobre qué
+   atender y la salida es ruido, por bien entrenado que esté el modelo. Existe un largo mínimo de
+   secuencia por debajo del cual la rama simplemente no aporta.
+5. **Robustez frente a datos que aún no existen**: las features de la sección 2 son
+   **especificables sin ver el historial**, porque cada una está anclada a una variable del
+   producto que ya conocemos. El Transformer de historial exige, en cambio, decisiones que
+   dependen de la distribución real de los datos — largo de secuencia, representación de cada
+   ítem, estrategia de pooling — que sobre un dataset inexistente serían conjeturas.
+6. **Scope del ejercicio**: el foco del TP es demostrar comprensión de la arquitectura Transformer
+   y su integración. La propuesta del MLP con el Query enriquecido por la preferencia ya logra ese
+   objetivo de manera concisa y coherente con el sistema existente.
 
 No obstante, para un sistema de producción a gran escala con millones de usuarios y
 disponibilidad de datos de historial extenso, esta alternativa sería la más potente y
