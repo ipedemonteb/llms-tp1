@@ -59,6 +59,7 @@ class TrainerConfig:
         lr: Learning rate de AdamW.
         weight_decay: Regularización L2 desacoplada.
         patience: Épocas sin mejora en la PR-AUC de validación antes de cortar. None desactiva.
+        restore_best: Si True, restaura los pesos del mejor checkpoint al finalizar.
         grad_clip: Norma máxima del gradiente. None desactiva el clipping.
         pos_weight: Peso de la clase positiva en la BCE. None la deja sin ponderar.
         device: 'cuda', 'mps', 'cpu' o None para autodetectar.
@@ -70,6 +71,7 @@ class TrainerConfig:
     lr: float = 1e-3
     weight_decay: float = 0.01
     patience: Optional[int] = 5
+    restore_best: bool = True
     grad_clip: Optional[float] = 1.0
     pos_weight: Optional[float] = None
     device: Optional[str] = None
@@ -206,7 +208,7 @@ class Trainer:
                           f"({self.config.patience} épocas sin mejora).")
                 break
 
-        if self.best_state is not None:
+        if self.config.restore_best and self.best_state is not None:
             self.model.load_state_dict(self.best_state)
             if self.config.verbose:
                 print(f"↩️  Restaurado el mejor checkpoint: época {self.best_epoch} "
