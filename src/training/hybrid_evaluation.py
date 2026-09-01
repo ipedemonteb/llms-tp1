@@ -93,7 +93,9 @@ def run_single_seed(
     restore_best: bool,
     fusion_mode: str,
     fusion_heads: int,
-    device: Optional[str],
+    tabular_mlp: bool = False,
+    d_tab: int = 32,
+    device: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Entrena una corrida puntual del modelo híbrido con una semilla específica."""
     set_seed(seed)
@@ -113,14 +115,15 @@ def run_single_seed(
     )
     text_encoder = TextTransformerEncoder(text_config)
 
-    # 2. Rama Tabular (Sin MLP, directo)
+    # 2. Rama Tabular (Con o sin MLP intermedio)
     tab_config = TabularEncoderConfig(
         num_numeric=artefactos["num_numeric"],
         num_direct=artefactos["num_direct"],
         embedding_cardinalities=artefactos["embedding_cardinalities"],
         embedding_dim=embedding_dim,
         onehot_cardinalities=artefactos["onehot_cardinalities"],
-        use_mlp=False,
+        use_mlp=tabular_mlp,
+        d_tab=d_tab,
         dropout=dropout,
     )
     tabular_encoder = TabularEncoder(tab_config)
@@ -289,6 +292,10 @@ def main() -> None:
     parser.add_argument("--pos_encoding", type=str, default="sinusoidal", help="Tipo de codificación posicional.")
     parser.add_argument("--pooling", type=str, default="mean", help="Estrategia de pooling de texto.")
     parser.add_argument("--embedding_dim", type=int, default=None, help="Dimensión de embeddings tabulares (None=auto).")
+    parser.add_argument("--tabular_mlp", action="store_true", default=False,
+                        help="Si True, activa la capa intermedia MLP en la rama tabular (proyecta a d_tab).")
+    parser.add_argument("--d_tab", type=int, default=32,
+                        help="Dimensión de salida de la rama tabular si --tabular_mlp está activo.")
     parser.add_argument("--seeds", nargs="+", type=int, default=[7, 42, 123, 456, 999],
                         help="Semillas aleatorias para evaluación estadística.")
     parser.add_argument("--epochs", type=int, default=15)
@@ -332,7 +339,7 @@ def main() -> None:
     print("=" * 88)
     print(f"🔬 EVALUACIÓN DEL MODELO HÍBRIDO [{'CROSS-ATTENTION' if args.fusion_mode == 'cross' else 'LATE FUSION'}]")
     print(f"   • Texto: d_model={args.d_model}, d_ff={args.d_ff}, L={args.num_layers}, H={args.n_heads}, {args.pos_encoding}")
-    print(f"   • Tabular: embedding_dim={args.embedding_dim or 'auto'}, use_mlp=False (directo)")
+    print(f"   • Tabular: embedding_dim={args.embedding_dim or 'auto'}, tabular_mlp={args.tabular_mlp} (d_tab={args.d_tab if args.tabular_mlp else 'directo'})")
     print(f"   • Fusión: mode={args.fusion_mode} (heads={args.fusion_heads}) -> ClassifierHead(64 -> 1)")
     print(f"   • Early Stopping: {'Desactivado (corre todas las épocas)' if args.no_early_stopping else f'Activado (patience={args.patience})'}")
     print(f"   • Semillas: {args.seeds}")
@@ -369,6 +376,8 @@ def main() -> None:
             restore_best=restore_best,
             fusion_mode=args.fusion_mode,
             fusion_heads=args.fusion_heads,
+            tabular_mlp=args.tabular_mlp,
+            d_tab=args.d_tab,
             device=args.device,
         )
         registros.append(res)
@@ -389,6 +398,8 @@ def main() -> None:
         "pos_encoding": args.pos_encoding,
         "pooling": args.pooling,
         "embedding_dim": args.embedding_dim or "auto",
+        "tabular_mlp": args.tabular_mlp,
+        "d_tab": args.d_tab if args.tabular_mlp else int(df_runs["d_tab"].iloc[0]),
         "params_text": int(df_runs["params_text"].iloc[0]),
         "params_tabular": int(df_runs["params_tabular"].iloc[0]),
         "params_head": int(df_runs["params_head"].iloc[0]),
