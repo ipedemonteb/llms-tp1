@@ -1,0 +1,20 @@
+{
+  "_descripcion": "Estudio de escala: Transformer compacto (d_model=32, d_ff=128, 4 cabezales).",
+  "use_text": true,
+  "use_tabular": true,
+  "fusion": "late",
+  "d_model": 32,
+  "n_heads": 4,
+  "d_ff": 128,
+  "num_layers": 2,
+  "pooling": "mean",
+  "pos_encoding": "sinusoidal",
+  "d_tab": 32,
+  "dropout": 0.1,
+  "weight_decay": 0.01,
+  "epochs": 20,
+  "lr": 0.001,
+  "patience": 5,
+  "batch_size": 64,
+  "seed": 42
+}

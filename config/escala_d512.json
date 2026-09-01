@@ -1,0 +1,20 @@
+{
+  "_descripcion": "Estudio de escala: Transformer a gran escala (d_model=512, d_ff=2048, 8 cabezales) con regularización alta.",
+  "use_text": true,
+  "use_tabular": true,
+  "fusion": "late",
+  "d_model": 512,
+  "n_heads": 8,
+  "d_ff": 2048,
+  "num_layers": 2,
+  "pooling": "mean",
+  "pos_encoding": "sinusoidal",
+  "d_tab": 32,
+  "dropout": 0.3,
+  "weight_decay": 0.05,
+  "epochs": 20,
+  "lr": 0.0003,
+  "patience": 5,
+  "batch_size": 64,
+  "seed": 42
+}
