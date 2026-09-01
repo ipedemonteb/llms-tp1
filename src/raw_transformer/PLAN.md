@@ -264,55 +264,83 @@ con el mismo formato de `summary.json` / `history.csv` / `checkpoint.pt` que las
 > confounder de D2: `all` incluye el contexto de búsqueda (`query_id`, `filter_*`) que el
 > hybrid no ve. La comparación honesta contra el hybrid es con el preset `product_only`.
 
-### Fase 6 — Evaluación y comparación ✅ (seed 42; multi-seed pendiente)
+### Fase 6 — Evaluación y comparación ✅ (3 semillas, pareado)
 
-Todas las corridas con **los mismos splits (verificado fila por fila)**, la misma seed (42)
-y los mismos hiperparámetros: `d_model=64`, 2 capas, 4 cabezales, AdamW lr=1e-3, wd=0.01,
-batch 64, dropout 0.1, BCE sin ponderar, early stopping con patience 5.
+Todas las corridas con **los mismos splits (verificado fila por fila)**, las mismas tres
+semillas (42, 7, 123) y los mismos hiperparámetros: `d_model=64`, 2 capas, 4 cabezales,
+AdamW lr=1e-3, wd=0.01, batch 64, dropout 0.1, BCE sin ponderar, early stopping con
+patience 5. Tablas generadas por `compare.py`, que reutiliza la estadística pareada de
+`src/training/aggregate.py` (Δ semilla a semilla, IC95% y t-test de una muestra).
 
-| Modelo | Entrada | Params | Mejor ép. | Val PR-AUC | **Test PR-AUC** | Test ROC-AUC | Test BCE |
-|---|---|---|---|---|---|---|---|
-| `raw` — `all` | 20 campos crudos como texto (incluye búsqueda) | 235.521 | 6 | 0.6903 | **0.7552** | 0.9683 | 0.1446 |
-| `baseline_tabular` | MLP sobre features curadas, sin Transformer | **4.664** | 5 | **0.7052** | 0.7311 | **0.9689** | 0.1413 |
-| `baseline_texto` | Transformer sobre `title_clean \| description \| ingredients` | 214.401 | 4 | 0.6586 | 0.7167 | 0.9635 | 0.1460 |
-| `cross_attention` | texto + tabular, fusión por cross-attention | 235.832 | 7 | 0.6740 | 0.7081 | 0.9673 | 0.1483 |
-| `late_fusion` | texto + tabular, concatenación | 218.936 | 5 | 0.6827 | 0.6882 | 0.9669 | **0.1410** |
-| **`raw` — `product_only`** | **14 campos crudos como texto (comparable al hybrid)** | 235.521 | 6 | 0.6855 | 0.6809 | 0.9618 | 0.1583 |
-| Predictor constante | — | — | — | — | 0.1313 | 0.5000 | — |
+**Media por configuración — `test_pr_auc`** (predictor constante = 0,1313):
+
+| Configuración | Entrada | Params | media ± σ | min–max | ROC-AUC | Mejor ép. |
+|:---|:---|---:|---:|---:|---:|---:|
+| **`baseline_tabular`** | MLP sobre features curadas, sin Transformer | **4.664** | **0,7476 ± 0,0292** | 0,7303–0,7813 | **0,9710** | 5 |
+| **`raw_product_only`** | 14 campos crudos como texto (comparable al hybrid) | 235.521 | 0,7070 ± 0,0236 | 0,6809–0,7268 | 0,9654 | 5 |
+| `raw_all` | 20 campos crudos como texto (incluye búsqueda) | 235.521 | 0,7006 ± 0,0491 | 0,6602–0,7552 | 0,9625 | 4 |
+| `cross_attention` | texto + tabular, cross-attention | 235.832 | 0,6988 ± 0,0160 | 0,6803–0,7081 | 0,9618 | 2 |
+| `late_fusion` | texto + tabular, concatenación | 218.936 | 0,6928 ± 0,0103 | 0,6856–0,7046 | 0,9644 | 3 |
+| `baseline_texto` | Transformer sobre `title_clean \| description \| ingredients` | 214.401 | 0,6843 ± 0,0282 | 0,6648–0,7167 | 0,9591 | 3 |
+
+En validación (`val_pr_auc`) el orden es: tabular 0,722 > late_fusion 0,692 > cross 0,681
+> raw_all 0,680 > raw_po 0,675 > texto 0,667 — mismo ganador, y todos los Transformers
+apretados en 0,67–0,69.
+
+**Diferencias pareadas por semilla — `test_pr_auc`** (Δ = referencia − otra; positivo =
+la referencia es mejor):
+
+| `raw_product_only` vs. | Δ media ± σ | IC95% | Semillas a favor | p |
+|:---|---:|---:|---:|---:|
+| `baseline_texto` | +0,0227 ± 0,0507 | [−0,103, +0,149] | 2/3 | 0,52 |
+| `late_fusion` | +0,0142 ± 0,0247 | [−0,047, +0,076] | 2/3 | 0,42 |
+| `cross_attention` | +0,0082 ± 0,0315 | [−0,070, +0,086] | 2/3 | 0,70 |
+| `raw_all` | +0,0064 ± 0,0702 | [−0,168, +0,181] | 2/3 | 0,89 |
+| `baseline_tabular` | **−0,0406 ± 0,0333** | [−0,123, +0,042] | **0/3** | 0,17 |
+
+| `baseline_tabular` vs. | Δ media ± σ | IC95% | Semillas a favor | p |
+|:---|---:|---:|---:|---:|
+| `baseline_texto` | +0,0633 ± 0,0512 | [−0,064, +0,190] | 3/3 | 0,17 |
+| **`late_fusion`** | **+0,0548 ± 0,0190** | **[+0,008, +0,102]** | **3/3** | **0,038** |
+| `cross_attention` | +0,0488 ± 0,0452 | [−0,063, +0,161] | 3/3 | 0,20 |
+| `raw_all` | +0,0470 ± 0,0727 | [−0,134, +0,228] | 2/3 | 0,38 |
+| `raw_product_only` | +0,0406 ± 0,0333 | [−0,042, +0,123] | 3/3 | 0,17 |
 
 **Contraste con las predicciones de la sección 7:**
 
-1. ❌ **#1 no se confirma.** `raw product_only` (0.681) y `late_fusion` (0.688) empatan
-   dentro del ruido en test (Δ = 0,007) y el raw incluso queda arriba en validación
-   (0.686 vs 0.683). El Transformer pelado, con la fila como texto y sin ninguna
-   ingeniería, **iguala a la arquitectura híbrida completa**. Este es el resultado
-   central para la presentación.
-2. ⏳ **#2 no se puede testear con estas corridas.** Para saber si la brecha (si existe)
-   viene de las numéricas hace falta un ablation por campo del raw (ver pendientes).
-3. ✅ **#3 confirmada.** Todos los Transformers tocan su máximo entre las épocas 4 y 7 y
-   después divergen (train PR-AUC → 0.80–0.85 mientras val cae). El raw es el que más
-   cae (val en la última época 0.57–0.58, contra 0.60–0.69 en los hybrids). El MLP
-   tabular casi no sobreajusta (val final 0.69).
-4. ✅ **#4 es el hallazgo real.** El **MLP tabular solo, con 4.664 parámetros (50× menos),
-   es el mejor modelo en validación (0.705) y el mejor entre los comparables en test
-   (0.731)**. La señal de este dataset está mayormente en los atributos estructurados
-   ya curados (badge como categórica, precio, etc.); todas las variantes con Transformer
-   quedan en 0.68–0.72 y ninguna le agrega valor claro al tabular.
+1. ❌ **#1 no se confirma.** `raw_product_only` vs `late_fusion`: Δ = +0,014 ± 0,025 en
+   test (2/3 semillas a favor del raw, p = 0,42) y −0,018 ± 0,036 en validación
+   (p = 0,49). **Indistinguibles.** El Transformer pelado, con la fila como texto y sin
+   ninguna ingeniería de features, **iguala a la arquitectura híbrida completa** en las
+   tres semillas. Es el resultado central para la presentación.
+2. ⏳ **#2 sigue sin poder testearse** (hace falta el ablation por campo, ver pendientes).
+3. ✅ **#3 confirmada.** Todos los Transformers tocan su máximo entre las épocas 2 y 6 y
+   después divergen (train PR-AUC → 0,80–0,85 mientras val cae). El raw es el que más
+   cae. El MLP tabular casi no sobreajusta.
+4. ✅ **#4 es el hallazgo real, y ahora con respaldo estadístico.** El **MLP tabular solo,
+   con 4.664 parámetros (50× menos), es el mejor modelo** en test y en validación:
+   le gana a `late_fusion` en 3/3 semillas con **p = 0,038** — la única diferencia
+   significativa de toda la grilla — y a `raw_product_only` en 3/3 semillas
+   (Δ = 0,041, p = 0,17). La señal de este dataset está en los atributos estructurados
+   curados (badge como categórica, precio, etc.); agregarles un Transformer, sea sobre
+   el texto o sobre la fila serializada, **no suma**.
 
-**Sobre `raw all` (0.755, el mejor número absoluto):** no es comparable con el hybrid
-porque ve `query_id` y los `filter_*` que aquél descarta. Además su validación (0.690)
-está por debajo de la del tabular (0.705), así que parte de la ventaja en test es
-probablemente suerte de semilla.
+**Sobre el contexto de búsqueda (`raw_all` vs `raw_product_only`):** con tres semillas
+la ventaja desaparece — Δ = −0,006 (p = 0,89) — y `raw_all` es la configuración **más
+inestable** de todas (σ = 0,049, rango 0,66–0,76). El 0,755 de la semilla 42 era un
+outlier, no una señal. `query_id` y los `filter_*` no aportan información útil promedio,
+solo varianza.
 
-**Advertencia metodológica:** con una sola semilla, la dispersión val↔test de cada modelo
-(±0,03–0,06) es **mayor que la mayoría de las diferencias entre modelos**, y el orden por
-validación no coincide con el orden por test (ej. `baseline_texto` es el peor en val y el
-segundo en test). Ninguna diferencia menor a ~0,05 debe leerse como concluyente.
+**Lectura general:** todas las variantes con Transformer quedan en una banda de
+0,68–0,71 de test PR-AUC, indistinguibles entre sí con n = 3 (ningún p < 0,4 entre
+ellas). Lo que ordena los modelos no es la arquitectura del Transformer ni cómo entra
+la información (texto crudo vs. ramas separadas), sino si se usan o no las features
+tabulares curadas — y el modelo que solo usa eso es el mejor.
+
+Artefactos (gitignorados): `results/runs_raw/` (6 corridas raw), `results/runs/`
+(12 corridas hybrid), `results/aggregate/raw_vs_hybrid_*.{md,csv}`.
 
 Pendiente:
-- [ ] Multi-seed (3+) con comparación **pareada por semilla** (como `src/training/aggregate.py`)
-  para las tres diferencias que importan: `raw_po` vs `late_fusion`, `raw_po` vs
-  `baseline_tabular`, `raw all` vs `raw_po`
 - [ ] Ablation por campo del raw para la predicción #2: `product_only` sin los numéricos
   (`price`, `net_weight_oz`, `nutrition_score`, `dimensions_in`) vs sin los categóricos
 - [ ] Gráficos comparativos (curvas de aprendizaje raw vs hybrid) → `results/`
@@ -347,7 +375,8 @@ src/raw_transformer/
 ├── train_tokenizer.py  Fase 2 — BPE propio + análisis de fragmentación
 ├── model.py            Fase 3 — encoder importado + cabeza de clasificación
 ├── dataset.py          Fase 4 — Dataset / DataLoader de PyTorch
-└── train.py            Fase 5 — CLI de entrenamiento sobre el Trainer común
+├── train.py            Fase 5 — CLI de entrenamiento sobre el Trainer común
+└── compare.py          Fase 6 — comparación multi-semilla pareada contra el hybrid
 ```
 
 **Se reutiliza sin duplicar:**

@@ -1,5 +1,6 @@
 """Tests del módulo raw_transformer: serialización, dataset, modelo e integración con el Trainer."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,7 @@ import pandas as pd
 import pytest
 import torch
 
+from src.raw_transformer.compare import cargar_corridas_raw, comparar
 from src.raw_transformer.dataset import RawSerializedDataset, split_files
 from src.raw_transformer.model import RawTransformerClassifier, RawTransformerConfig
 from src.raw_transformer.serialize import (
@@ -251,3 +253,67 @@ def test_entrenamiento_end_to_end_con_el_trainer_comun(csv_serializado, tokenize
     metricas = trainer.evaluate(loader, prefix="test_")
     assert 0.0 <= metricas["test_pr_auc"] <= 1.0
     assert 0.0 <= metricas["test_roc_auc"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Comparación multi-semilla pareada
+# ---------------------------------------------------------------------------
+
+def _summary_falso(run_name: str, seed: int, test_pr_auc: float, **args_extra) -> dict:
+    """summary.json mínimo con la forma que dejan train.py (raw) y src/training/train.py (hybrid)."""
+    return {
+        "run_name": run_name,
+        "args": {"seed": seed, "epochs": 20, "patience": 5, **args_extra},
+        "param_breakdown": {"total": 1000},
+        "best_epoch": 3,
+        "best_val_pr_auc": test_pr_auc - 0.01,
+        "test_metrics": {"test_pr_auc": test_pr_auc, "test_roc_auc": 0.9, "test_pr_auc_baseline": 0.13},
+        "test_lift": test_pr_auc / 0.13,
+    }
+
+
+def _escribir_corridas(base: Path, corridas: list) -> None:
+    for datos in corridas:
+        carpeta = base / datos["run_name"]
+        carpeta.mkdir(parents=True)
+        (carpeta / "summary.json").write_text(json.dumps(datos), encoding="utf-8")
+
+
+def test_cargar_corridas_raw_agrupa_por_preset(tmp_path):
+    _escribir_corridas(tmp_path, [
+        _summary_falso("raw_d64_L2_H4_s42", 42, 0.70, data_prefix="raw"),
+        _summary_falso("raw_d64_L2_H4_s7", 7, 0.72, data_prefix="raw"),
+        _summary_falso("raw_po_d64_L2_H4_s42", 42, 0.68, data_prefix="raw_po"),
+    ])
+
+    grupos = cargar_corridas_raw(tmp_path)
+
+    assert set(grupos) == {"raw_all", "raw_product_only"}
+    assert sorted(c.seed for c in grupos["raw_all"]) == [7, 42]
+    # La firma es el run_name sin la semilla: misma arquitectura → misma firma
+    assert {c.firma for c in grupos["raw_all"]} == {"raw_d64_L2_H4"}
+    assert grupos["raw_product_only"][0].metricas["val_pr_auc"] == pytest.approx(0.67)
+
+
+def test_comparar_aparea_raw_y_hybrid_por_semilla(tmp_path):
+    raw_dir, hybrid_dir, salida = tmp_path / "runs_raw", tmp_path / "runs", tmp_path / "aggregate"
+    _escribir_corridas(raw_dir, [
+        _summary_falso(f"raw_po_d64_L2_H4_s{s}", s, v, data_prefix="raw_po")
+        for s, v in [(42, 0.68), (7, 0.70), (123, 0.69)]
+    ])
+    _escribir_corridas(hybrid_dir, [
+        _summary_falso(f"late_fusion_hyb_late_d64_L2_H4_s{s}", s, v, config="late_fusion")
+        for s, v in [(42, 0.69), (7, 0.72), (123, 0.71)]
+    ])
+
+    informe = comparar(baselines=["late_fusion"], output_dir=salida, raw_dir=raw_dir, hybrid_dir=hybrid_dir)
+
+    pareado = pd.read_csv(salida / "raw_vs_hybrid_pareado_late_fusion_test_pr_auc.csv")
+    fila = pareado[pareado["config"] == "raw_product_only"].iloc[0]
+    assert fila["n"] == 3
+    # Δ = late_fusion − raw, semilla a semilla: 0.01, 0.02, 0.02
+    assert fila["delta_media"] == pytest.approx(0.05 / 3)
+    assert fila["semillas_a_favor"] == 3
+    assert "late_fusion vs." in informe
+    assert (salida / "raw_vs_hybrid_test_pr_auc.md").exists()
+    assert (salida / "raw_vs_hybrid_corridas.csv").exists()
