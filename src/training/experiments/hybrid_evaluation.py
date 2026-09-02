@@ -39,39 +39,11 @@ from src.hybrid_transformer.tabular_encoder import TabularEncoder, TabularEncode
 from src.hybrid_transformer.text_encoder import TextTransformerConfig, TextTransformerEncoder
 from src.training.dataset import build_dataloaders
 from src.training.metrics import compute_extended_metrics
+from src.training.plots import SERIE_1, SERIE_2, SERIE_3, SERIE_5, aplicar_estilo_cientifico
 from src.training.trainer import Trainer, TrainerConfig, set_seed
 
 OUTPUT_AGG_DIR = Path("results/aggregate/hybrid_baseline")
 OUTPUT_FIG_DIR = Path("results/figures/hybrid_baseline")
-
-
-def aplicar_estilo_cientifico() -> None:
-    """Configuración estética limpia y sobria para figuras científicas."""
-    plt.rcParams.update({
-        "figure.facecolor": "white",
-        "axes.facecolor": "white",
-        "savefig.facecolor": "white",
-        "axes.edgecolor": "#333333",
-        "axes.labelcolor": "#111111",
-        "axes.titlecolor": "#111111",
-        "axes.linewidth": 1.0,
-        "axes.grid": True,
-        "grid.color": "#e0e0e0",
-        "grid.linewidth": 0.8,
-        "grid.linestyle": "--",
-        "xtick.color": "#111111",
-        "ytick.color": "#111111",
-        "xtick.labelsize": 11,
-        "ytick.labelsize": 11,
-        "axes.labelsize": 12,
-        "axes.titlesize": 13,
-        "legend.frameon": True,
-        "legend.framealpha": 0.9,
-        "legend.edgecolor": "#cccccc",
-        "legend.fontsize": 10.5,
-        "font.size": 11,
-        "figure.dpi": 150,
-    })
 
 
 def run_single_seed(
@@ -286,45 +258,51 @@ def plot_hybrid_results(df_runs: pd.DataFrame, all_histories: Any, output_dir: P
     return salida_path
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluación del Modelo Híbrido Simple (Transformer + Tabular Directo).")
-    parser.add_argument("--exp_name", type=str, default=None, help="Nombre del experimento para aislar salidas.")
-    parser.add_argument("--d_model", type=int, default=96, help="Dimensión latente del Transformer.")
-    parser.add_argument("--d_ff", type=int, default=384, help="Dimensión FFN del Transformer.")
-    parser.add_argument("--num_layers", type=int, default=1, help="Cantidad de capas del Transformer.")
-    parser.add_argument("--n_heads", type=int, default=1, help="Cabezales de atención.")
-    parser.add_argument("--pos_encoding", type=str, default="sinusoidal", help="Tipo de codificación posicional.")
-    parser.add_argument("--pooling", type=str, default="mean", help="Estrategia de pooling de texto.")
-    parser.add_argument("--embedding_dim", type=int, default=None, help="Dimensión de embeddings tabulares (None=auto).")
-    parser.add_argument("--tabular_mlp", action="store_true", default=False,
-                        help="Si True, activa la capa intermedia MLP en la rama tabular (proyecta a d_tab).")
-    parser.add_argument("--d_tab", type=int, default=32,
-                        help="Dimensión de salida de la rama tabular si --tabular_mlp está activo.")
-    parser.add_argument("--seeds", nargs="+", type=int, default=[7, 42, 123, 456, 999],
-                        help="Semillas aleatorias para evaluación estadística.")
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight_decay", type=float, default=0.01)
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--patience", type=int, default=5)
-    parser.add_argument("--no_early_stopping", action="store_true", help="Desactiva early stopping y corre todas las épocas sin restaurar.")
-    parser.add_argument("--fusion_mode", type=str, default="late", choices=["late", "cross"], help="Estrategia de fusión: late o cross.")
-    parser.add_argument("--fusion_heads", type=int, default=1, help="Cabezales de cross-attention.")
-    parser.add_argument("--use_tabular_mlp", action="store_true", help="Activa el MLP en la rama tabular.")
-    parser.add_argument("--d_tab", type=int, default=32, help="Dimensión de salida e_tab del MLP tabular (default: 32).")
-    parser.add_argument("--tab_hidden_dims", nargs="+", type=int, default=[64], help="Capas ocultas del MLP tabular.")
-    parser.add_argument("--head_hidden_dims", nargs="*", type=int, default=[64], help="Capas ocultas del clasificador final (ej: 64, 32, 64 32, o vacío para regresión lineal).")
-    parser.add_argument("--text_fields", nargs="+", type=str, default=None,
-                        help="Campos que componen la secuencia de texto (default: title_clean description ingredients).")
-    parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--plots_only", action="store_true", help="Solo regenera las figuras desde los CSVs.")
-    args = parser.parse_args()
+def run_hybrid_experiment(
+    exp_name: Optional[str] = None,
+    d_model: int = 96,
+    d_ff: int = 384,
+    num_layers: int = 1,
+    n_heads: int = 1,
+    pos_encoding: str = "sinusoidal",
+    pooling: str = "mean",
+    embedding_dim: Optional[int] = None,
+    tabular_mlp: bool = False,
+    use_tabular_mlp: Optional[bool] = None,
+    d_tab: int = 32,
+    tab_hidden_dims: Optional[List[int]] = None,
+    head_hidden_dims: Optional[List[int]] = None,
+    fusion_mode: str = "late",
+    fusion_heads: int = 1,
+    seeds: Sequence[int] = (7, 42, 123, 456, 999),
+    epochs: int = 15,
+    batch_size: int = 64,
+    lr: float = 1e-3,
+    weight_decay: float = 0.01,
+    dropout: float = 0.1,
+    patience: Optional[int] = 5,
+    no_early_stopping: bool = False,
+    text_fields: Optional[List[str]] = None,
+    numeric_fields: Optional[List[str]] = None,
+    log1p_fields: Optional[List[str]] = None,
+    direct_fields: Optional[List[str]] = None,
+    embedding_fields: Optional[List[str]] = None,
+    onehot_fields: Optional[List[str]] = None,
+    data_dir: Union[str, Path] = "resources/datasets",
+    tokenizer_path: Union[str, Path] = "resources/tokenizer/bpe_tokenizer.json",
+    device: Optional[str] = None,
+    base_agg_dir: Path = OUTPUT_AGG_DIR,
+    base_fig_dir: Path = OUTPUT_FIG_DIR,
+    plots_only: bool = False,
+    verbose: bool = True,
+) -> Dict[str, Any]:
+    """Ejecuta o regenera una evaluación experimental multi-semilla para el modelo híbrido."""
+    tab_mlp = tabular_mlp if use_tabular_mlp is None else (tabular_mlp or use_tabular_mlp)
 
-    agg_dir = OUTPUT_AGG_DIR if args.exp_name is None else (OUTPUT_AGG_DIR / args.exp_name)
-    fig_dir = OUTPUT_FIG_DIR if args.exp_name is None else (OUTPUT_FIG_DIR / args.exp_name)
-    fig_filename = "01_hybrid_simple_evaluation.png" if args.exp_name is None else f"01_hybrid_{args.exp_name}_evaluation.png"
-    title_suffix = f"({args.exp_name})" if args.exp_name else "(5 Semillas)"
+    agg_dir = base_agg_dir if exp_name is None else (base_agg_dir / exp_name)
+    fig_dir = base_fig_dir if exp_name is None else (base_fig_dir / exp_name)
+    fig_filename = "01_hybrid_simple_evaluation.png" if exp_name is None else f"01_hybrid_{exp_name}_evaluation.png"
+    title_suffix = f"({exp_name})" if exp_name else "(5 Semillas)"
 
     agg_dir.mkdir(parents=True, exist_ok=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
@@ -334,87 +312,100 @@ def main() -> None:
     if not history_json.exists():
         history_json = agg_dir / "hybrid_evaluation_history.json"
 
-    if args.plots_only and seeds_csv.exists():
-        print(f"🎨 Regenerando figura en {fig_dir}...")
+    if plots_only and seeds_csv.exists():
+        if verbose:
+            print(f"🎨 Regenerando figura en {fig_dir}...")
         df_runs = pd.read_csv(seeds_csv)
         hist = json.loads(history_json.read_text(encoding="utf-8")) if history_json.exists() else None
         fig_path = plot_hybrid_results(df_runs, hist, fig_dir, filename=fig_filename, title_suffix=title_suffix)
-        print(f"   ✓ {fig_path.name}")
-        print("✅ Figura actualizada correctamente con ROC-AUC, PR-AUC y BCE Loss.")
-        return
+        summary_csv = agg_dir / "hybrid_evaluation_summary.csv"
+        df_sum = pd.read_csv(summary_csv) if summary_csv.exists() else pd.DataFrame()
+        if verbose:
+            print(f"   ✓ {fig_path.name}")
+            print("✅ Figura actualizada correctamente con ROC-AUC, PR-AUC y BCE Loss.")
+        return {"df_runs": df_runs, "summary": df_sum.to_dict(orient="records")[0] if not df_sum.empty else {}, "fig_path": fig_path}
 
-    patience = None if args.no_early_stopping else args.patience
-    restore_best = False if args.no_early_stopping else True
+    real_patience = None if no_early_stopping else patience
+    restore_best = False if no_early_stopping else True
 
-    print("=" * 88)
-    print(f"🔬 EVALUACIÓN DEL MODELO HÍBRIDO [{'CROSS-ATTENTION' if args.fusion_mode == 'cross' else 'LATE FUSION'}]")
-    print(f"   • Texto: d_model={args.d_model}, d_ff={args.d_ff}, L={args.num_layers}, H={args.n_heads}, {args.pos_encoding}")
-    print(f"   • Campos de Texto: {args.text_fields or ['title_clean', 'description', 'ingredients']}")
-    print(f"   • Tabular: embedding_dim={args.embedding_dim or 'auto'}, MLP={'Activado (d_tab=' + str(args.d_tab) + ')' if args.use_tabular_mlp else 'Desactivado (directo)'}")
-    print(f"   • Clasificador Final: hidden_dims={args.head_hidden_dims if args.head_hidden_dims else 'Directo (sin capas ocultas)'}")
-    print(f"   • Fusión: mode={args.fusion_mode} (heads={args.fusion_heads})")
-    print(f"   • Early Stopping: {'Desactivado (corre todas las épocas)' if args.no_early_stopping else f'Activado (patience={args.patience})'}")
-    print(f"   • Semillas: {args.seeds}")
-    print("=" * 88)
+    if verbose:
+        print("=" * 88)
+        print(f"🔬 EVALUACIÓN DEL MODELO HÍBRIDO [{'CROSS-ATTENTION' if fusion_mode == 'cross' else 'LATE FUSION'}]")
+        print(f"   • Texto: d_model={d_model}, d_ff={d_ff}, L={num_layers}, H={n_heads}, {pos_encoding}")
+        print(f"   • Campos de Texto: {text_fields or ['title_clean', 'description', 'ingredients']}")
+        print(f"   • Tabular: embedding_dim={embedding_dim or 'auto'}, MLP={'Activado (d_tab=' + str(d_tab) + ')' if tab_mlp else 'Desactivado (directo)'}")
+        print(f"   • Clasificador Final: hidden_dims={head_hidden_dims if head_hidden_dims else 'Directo (sin capas ocultas)'}")
+        print(f"   • Fusión: mode={fusion_mode} (heads={fusion_heads})")
+        print(f"   • Early Stopping: {'Desactivado (corre todas las épocas)' if no_early_stopping else f'Activado (patience={patience})'}")
+        print(f"   • Semillas: {list(seeds)}")
+        print("=" * 88)
 
     loaders, artefactos = build_dataloaders(
-        batch_size=args.batch_size,
-        text_fields=args.text_fields,
+        data_dir=data_dir,
+        tokenizer_path=tokenizer_path,
+        batch_size=batch_size,
+        text_fields=text_fields,
+        numeric_fields=numeric_fields,
+        log1p_fields=log1p_fields,
+        direct_fields=direct_fields,
+        embedding_fields=embedding_fields,
+        onehot_fields=onehot_fields,
         use_text=True,
         use_tabular=True,
         seed=42,
     )
 
     registros = []
-    example_history = None
+    all_histories = []
 
-    for s in args.seeds:
-        print(f"🚀 Ejecutando Seed {s}...")
+    for s in seeds:
+        if verbose:
+            print(f"🚀 Ejecutando Seed {s}...")
         res = run_single_seed(
             seed=s,
             loaders=loaders,
             artefactos=artefactos,
-            d_model=args.d_model,
-            d_ff=args.d_ff,
-            num_layers=args.num_layers,
-            n_heads=args.n_heads,
-            pos_encoding=args.pos_encoding,
-            pooling=args.pooling,
-            embedding_dim=args.embedding_dim,
-            epochs=args.epochs,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-            dropout=args.dropout,
-            patience=patience,
+            d_model=d_model,
+            d_ff=d_ff,
+            num_layers=num_layers,
+            n_heads=n_heads,
+            pos_encoding=pos_encoding,
+            pooling=pooling,
+            embedding_dim=embedding_dim,
+            epochs=epochs,
+            lr=lr,
+            weight_decay=weight_decay,
+            dropout=dropout,
+            patience=real_patience,
             restore_best=restore_best,
-            fusion_mode=args.fusion_mode,
-            fusion_heads=args.fusion_heads,
-            use_tabular_mlp=args.use_tabular_mlp,
-            d_tab=args.d_tab,
-            tab_hidden_dims=args.tab_hidden_dims,
-            head_hidden_dims=args.head_hidden_dims,
-            device=args.device,
+            fusion_mode=fusion_mode,
+            fusion_heads=fusion_heads,
+            use_tabular_mlp=tab_mlp,
+            d_tab=d_tab,
+            tab_hidden_dims=tab_hidden_dims,
+            head_hidden_dims=head_hidden_dims,
+            device=device,
         )
+        all_histories.append(res["history"])
         registros.append(res)
-        if example_history is None:
-            example_history = res["history"]
-        print(f"   ✓ Seed {s:>3} | Época: {res['best_epoch']} | Val PR-AUC: {res['val_pr_auc']:.4f} | Test PR-AUC: {res['test_pr_auc']:.4f} | ROC: {res['test_roc_auc']:.4f}")
+        if verbose:
+            print(f"   ✓ Seed {s:>3} | Época: {res['best_epoch']} | Val PR-AUC: {res['val_pr_auc']:.4f} | Test PR-AUC: {res['test_pr_auc']:.4f} | ROC: {res['test_roc_auc']:.4f}")
 
     df_runs = pd.DataFrame(registros)
-    all_histories = [r["history"] for r in registros]
     df_runs_save = df_runs.drop(columns=["history"])
     df_runs_save.to_csv(agg_dir / "hybrid_evaluation_seeds.csv", index=False)
     (agg_dir / "hybrid_evaluation_histories.json").write_text(json.dumps(all_histories, indent=2), encoding="utf-8")
 
     summary = {
-        "d_model": args.d_model,
-        "num_layers": args.num_layers,
-        "n_heads": args.n_heads,
-        "pos_encoding": args.pos_encoding,
-        "pooling": args.pooling,
-        "embedding_dim": args.embedding_dim or "auto",
-        "tabular_mlp": args.tabular_mlp,
-        "d_tab": args.d_tab if args.tabular_mlp else int(df_runs["d_tab"].iloc[0]),
+        "exp_name": exp_name or "hybrid_baseline",
+        "d_model": d_model,
+        "num_layers": num_layers,
+        "n_heads": n_heads,
+        "pos_encoding": pos_encoding,
+        "pooling": pooling,
+        "embedding_dim": embedding_dim or "auto",
+        "tabular_mlp": tab_mlp,
+        "d_tab": d_tab if tab_mlp else int(df_runs["d_tab"].iloc[0]),
         "params_text": int(df_runs["params_text"].iloc[0]),
         "params_tabular": int(df_runs["params_tabular"].iloc[0]),
         "params_head": int(df_runs["params_head"].iloc[0]),
@@ -437,15 +428,56 @@ def main() -> None:
     df_sum.to_csv(agg_dir / "hybrid_evaluation_summary.csv", index=False)
     (agg_dir / "hybrid_evaluation_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-    print("\n" + "=" * 88)
-    print("📊 RESUMEN ESTADÍSTICO CONSOLIDADO (5 SEMILLAS)")
-    print("=" * 88)
-    cols = ["fused_dim", "params_total", "val_pr_auc_mean", "val_pr_auc_std", "test_pr_auc_mean", "test_pr_auc_std", "test_roc_auc_mean", "test_bce_mean", "test_lift_mean"]
-    print(df_sum[cols].to_string(index=False))
+    if verbose:
+        print("\n" + "=" * 88)
+        print("📊 RESUMEN ESTADÍSTICO CONSOLIDADO (5 SEMILLAS)")
+        print("=" * 88)
+        cols = ["fused_dim", "params_total", "val_pr_auc_mean", "val_pr_auc_std", "test_pr_auc_mean", "test_pr_auc_std", "test_roc_auc_mean", "test_bce_mean", "test_lift_mean"]
+        print(df_sum[cols].to_string(index=False))
 
     fig_path = plot_hybrid_results(df_runs, all_histories, fig_dir, filename=fig_filename, title_suffix=title_suffix)
-    print(f"\n🎨 Figura guardada: {fig_path.name}")
-    print("=" * 88 + "\n")
+    if verbose:
+        print(f"\n🎨 Figura guardada: {fig_path.name}")
+        print("=" * 88 + "\n")
+
+    return {"df_runs": df_runs, "summary": summary, "fig_path": fig_path}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Evaluación del Modelo Híbrido Simple (Transformer + Tabular Directo).")
+    parser.add_argument("--exp_name", type=str, default=None, help="Nombre del experimento para aislar salidas.")
+    parser.add_argument("--d_model", type=int, default=96, help="Dimensión latente del Transformer.")
+    parser.add_argument("--d_ff", type=int, default=384, help="Dimensión FFN del Transformer.")
+    parser.add_argument("--num_layers", type=int, default=1, help="Cantidad de capas del Transformer.")
+    parser.add_argument("--n_heads", type=int, default=1, help="Cabezales de atención.")
+    parser.add_argument("--pos_encoding", type=str, default="sinusoidal", help="Tipo de codificación posicional.")
+    parser.add_argument("--pooling", type=str, default="mean", help="Estrategia de pooling de texto.")
+    parser.add_argument("--embedding_dim", type=int, default=None, help="Dimensión de embeddings tabulares (None=auto).")
+    parser.add_argument("--tabular_mlp", action="store_true", default=False,
+                        help="Si True, activa la capa intermedia MLP en la rama tabular (proyecta a d_tab).")
+    parser.add_argument("--use_tabular_mlp", action="store_true", help="Alias de compatibilidad para --tabular_mlp.")
+    parser.add_argument("--d_tab", type=int, default=32,
+                        help="Dimensión de salida de la rama tabular si --tabular_mlp está activo.")
+    parser.add_argument("--seeds", nargs="+", type=int, default=[7, 42, 123, 456, 999],
+                        help="Semillas aleatorias para evaluación estadística.")
+    parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--weight_decay", type=float, default=0.01)
+    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument("--no_early_stopping", action="store_true", help="Desactiva early stopping y corre todas las épocas sin restaurar.")
+    parser.add_argument("--fusion_mode", type=str, default="late", choices=["late", "cross"], help="Estrategia de fusión: late o cross.")
+    parser.add_argument("--fusion_heads", type=int, default=1, help="Cabezales de cross-attention.")
+    parser.add_argument("--tab_hidden_dims", nargs="+", type=int, default=[64], help="Capas ocultas del MLP tabular.")
+    parser.add_argument("--head_hidden_dims", nargs="*", type=int, default=[64], help="Capas ocultas del clasificador final.")
+    parser.add_argument("--text_fields", nargs="+", type=str, default=None,
+                        help="Campos que componen la secuencia de texto (default: title_clean description ingredients).")
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--plots_only", action="store_true", help="Solo regenera las figuras desde los CSVs.")
+    args = parser.parse_args()
+
+    run_hybrid_experiment(**vars(args))
 
 
 if __name__ == "__main__":

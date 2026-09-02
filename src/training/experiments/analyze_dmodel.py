@@ -36,24 +36,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# Paleta y Estilo Visual (Alineado con el sistema de visualización del proyecto)
-# ==============================================================================
-SERIE_1 = "#2a78d6"      # Azul
-SERIE_2 = "#eb6834"      # Naranja / Coral
-SERIE_3 = "#2e9e66"      # Verde esmeralda
-SERIE_4 = "#8442b3"      # Violeta
-SERIE_5 = "#d9383a"      # Rojo
-TINTA = "#0b0b0b"        # Texto principal
-TINTA_2 = "#52514e"      # Texto secundario / Ejes
-MUTE = "#8a8985"         # Líneas auxiliares
-GRILLA = "#e6e5e1"       # Líneas de grilla
-SUPERFICIE = "#fcfcfb"   # Fondo limpio
-
-PALETA_LINEAS = [
-    "#2a78d6", "#eb6834", "#2e9e66", "#8442b3",
-    "#d9383a", "#028090", "#e07a5f", "#3d405b",
-]
+from src.training.plots import (
+    GRILLA,
+    MUTE,
+    PALETA_LINEAS,
+    SERIE_1,
+    SERIE_2,
+    SERIE_3,
+    SERIE_4,
+    SERIE_5,
+    SUPERFICIE,
+    TINTA,
+    TINTA_2,
+    aplicar_estilo,
+    limpiar_ejes,
+)
 
 DEFAULT_RESULTS_DIR = Path("results/runs")
 DEFAULT_OUTPUT_DIR = Path("results/figures/dmodel_analysis")
@@ -61,41 +58,7 @@ DEFAULT_OUTPUT_DIR = Path("results/figures/dmodel_analysis")
 
 def aplicar_estilo_matplotlib() -> None:
     """Configura el estilo limpio para publicaciones / presentaciones."""
-    plt.rcParams.update({
-        "figure.facecolor": SUPERFICIE,
-        "axes.facecolor": SUPERFICIE,
-        "savefig.facecolor": SUPERFICIE,
-        "axes.edgecolor": GRILLA,
-        "axes.labelcolor": TINTA_2,
-        "axes.titlecolor": TINTA,
-        "axes.linewidth": 0.9,
-        "axes.grid": True,
-        "axes.axisbelow": True,
-        "grid.color": GRILLA,
-        "grid.linewidth": 0.8,
-        "grid.linestyle": "-",
-        "xtick.color": TINTA_2,
-        "ytick.color": TINTA_2,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "axes.labelsize": 11,
-        "axes.titlesize": 12,
-        "legend.frameon": False,
-        "legend.fontsize": 9.5,
-        "font.size": 11,
-        "figure.dpi": 160,
-        "lines.linewidth": 2.0,
-        "lines.markersize": 6,
-    })
-
-
-def limpiar_ejes(ax: plt.Axes, solo_y: bool = True) -> None:
-    """Elimina espinas redundantes (superior y derecha)."""
-    for lado in ("top", "right"):
-        ax.spines[lado].set_visible(False)
-    if solo_y:
-        ax.grid(axis="y", visible=True)
-        ax.grid(axis="x", visible=False)
+    aplicar_estilo(fondo="superficie")
 
 
 # ==============================================================================

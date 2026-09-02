@@ -27,39 +27,11 @@ from src.hybrid_transformer.fusion import BTRModel, FusionConfig
 from src.hybrid_transformer.tabular_encoder import TabularEncoder, TabularEncoderConfig
 from src.training.dataset import build_dataloaders
 from src.training.metrics import compute_extended_metrics
+from src.training.plots import SERIE_1, SERIE_2, SERIE_3, SERIE_5, aplicar_estilo_cientifico
 from src.training.trainer import Trainer, TrainerConfig, set_seed
 
-OUTPUT_AGG_DIR = Path("results/aggregate")
+OUTPUT_AGG_DIR = Path("results/aggregate/tabular_ablation")
 OUTPUT_FIG_DIR = Path("results/figures/tabular_ablation")
-
-
-def aplicar_estilo_cientifico() -> None:
-    """Configuración estética limpia, sobria y estándar para papers/reportes."""
-    plt.rcParams.update({
-        "figure.facecolor": "white",
-        "axes.facecolor": "white",
-        "savefig.facecolor": "white",
-        "axes.edgecolor": "#333333",
-        "axes.labelcolor": "#111111",
-        "axes.titlecolor": "#111111",
-        "axes.linewidth": 1.0,
-        "axes.grid": True,
-        "grid.color": "#e0e0e0",
-        "grid.linewidth": 0.8,
-        "grid.linestyle": "--",
-        "xtick.color": "#111111",
-        "ytick.color": "#111111",
-        "xtick.labelsize": 11,
-        "ytick.labelsize": 11,
-        "axes.labelsize": 12,
-        "axes.titlesize": 13,
-        "legend.frameon": True,
-        "legend.framealpha": 0.9,
-        "legend.edgecolor": "#cccccc",
-        "legend.fontsize": 11,
-        "font.size": 11,
-        "figure.dpi": 150,
-    })
 
 
 def train_single_seed(
@@ -237,9 +209,15 @@ def main() -> None:
     parser.add_argument("--plots_only", action="store_true", help="Solo regenera las figuras desde summary.csv.")
     args = parser.parse_args()
 
-    if args.plots_only and (OUTPUT_AGG_DIR / "tabular_ablation_summary.csv").exists():
-        print("🎨 Regenerando figuras desde resultados existentes...")
-        df_agg = pd.read_csv(OUTPUT_AGG_DIR / "tabular_ablation_summary.csv")
+    csv_candidates = [
+        OUTPUT_AGG_DIR / "tabular_ablation_summary.csv",
+        Path("results/aggregate/tabular_ablation_summary.csv"),
+    ]
+    summary_file = next((p for p in csv_candidates if p.exists()), None)
+
+    if args.plots_only and summary_file is not None:
+        print(f"🎨 Regenerando figuras desde {summary_file}...")
+        df_agg = pd.read_csv(summary_file)
         f1 = plot_pr_auc_comparison(df_agg)
         f2 = plot_roc_and_loss_comparison(df_agg)
         print(f"   ✓ {f1.name}")

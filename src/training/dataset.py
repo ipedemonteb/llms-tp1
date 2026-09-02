@@ -91,6 +91,11 @@ def build_dataloaders(
     tokenizer_path: Union[str, Path] = "resources/tokenizer/bpe_tokenizer.json",
     preprocessor_path: Optional[Union[str, Path]] = "resources/preprocessor/tabular_preprocessor.json",
     text_fields: Optional[List[str]] = None,
+    numeric_fields: Optional[List[str]] = None,
+    log1p_fields: Optional[List[str]] = None,
+    direct_fields: Optional[List[str]] = None,
+    embedding_fields: Optional[List[str]] = None,
+    onehot_fields: Optional[List[str]] = None,
     max_length: int = 128,
     batch_size: int = 64,
     use_text: bool = True,
@@ -127,7 +132,21 @@ def build_dataloaders(
 
     preprocessor = None
     if use_tabular:
-        preprocessor = TabularPreprocessor().fit(splits["train"])
+        tiene_campos_custom = any(
+            f is not None
+            for f in (numeric_fields, log1p_fields, direct_fields, embedding_fields, onehot_fields)
+        )
+        if tiene_campos_custom:
+            preprocessor = TabularPreprocessor(
+                numeric_fields=numeric_fields if numeric_fields is not None else [],
+                log1p_fields=log1p_fields if log1p_fields is not None else [],
+                direct_fields=direct_fields if direct_fields is not None else [],
+                embedding_fields=embedding_fields if embedding_fields is not None else [],
+                onehot_fields=onehot_fields if onehot_fields is not None else [],
+            ).fit(splits["train"])
+        else:
+            preprocessor = TabularPreprocessor().fit(splits["train"])
+
         if preprocessor_path is not None:
             preprocessor.save(preprocessor_path)
 

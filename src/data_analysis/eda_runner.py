@@ -26,10 +26,14 @@ from src.data_analysis.plots import (
 )
 
 
-def run_eda(csv_path: str = "resources/datasets/supermarket_products.csv", results_dir: str = "results"):
-    """Ejecuta el pipeline completo de EDA y guarda todas las figuras en `results/figures/`."""
+def run_eda(
+    csv_path: str = "resources/datasets/supermarket_products.csv",
+    results_dir: str = "results",
+    figures_subdir: str = "dataset_info",
+):
+    """Ejecuta el pipeline completo de EDA y guarda todas las figuras en `results/figures/dataset_info/`."""
     results_path = Path(results_dir)
-    figures_path = results_path / "figures"
+    figures_path = results_path / "figures" / figures_subdir
     figures_path.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)

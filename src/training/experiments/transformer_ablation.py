@@ -36,39 +36,11 @@ from src.hybrid_transformer.fusion import BTRModel, FusionConfig
 from src.hybrid_transformer.text_encoder import TextTransformerConfig, TextTransformerEncoder
 from src.training.dataset import build_dataloaders
 from src.training.metrics import compute_extended_metrics
+from src.training.plots import SERIE_1, SERIE_2, SERIE_3, SERIE_5, aplicar_estilo_cientifico
 from src.training.trainer import Trainer, TrainerConfig, set_seed
 
 OUTPUT_AGG_DIR = Path("results/aggregate/transformer_ablation")
 OUTPUT_FIG_DIR = Path("results/figures/transformer_ablation")
-
-
-def aplicar_estilo_cientifico() -> None:
-    """Configuración estética limpia, sobria y estándar para papers/reportes."""
-    plt.rcParams.update({
-        "figure.facecolor": "white",
-        "axes.facecolor": "white",
-        "savefig.facecolor": "white",
-        "axes.edgecolor": "#333333",
-        "axes.labelcolor": "#111111",
-        "axes.titlecolor": "#111111",
-        "axes.linewidth": 1.0,
-        "axes.grid": True,
-        "grid.color": "#e0e0e0",
-        "grid.linewidth": 0.8,
-        "grid.linestyle": "--",
-        "xtick.color": "#111111",
-        "ytick.color": "#111111",
-        "xtick.labelsize": 11,
-        "ytick.labelsize": 11,
-        "axes.labelsize": 12,
-        "axes.titlesize": 13,
-        "legend.frameon": True,
-        "legend.framealpha": 0.9,
-        "legend.edgecolor": "#cccccc",
-        "legend.fontsize": 10.5,
-        "font.size": 11,
-        "figure.dpi": 150,
-    })
 
 
 def train_single_text_run(

@@ -35,40 +35,52 @@ from sklearn.metrics import precision_recall_curve, roc_curve
 
 # Paleta validada con scripts/validate_palette.js (modo light, superficie #fcfcfb):
 # separación CVD ΔE 9.2 y visión normal ΔE 27.6 en el peor par adyacente.
-SERIE_1 = "#2a78d6"   # azul  — train / precisión
-SERIE_2 = "#eb6834"   # naranja — validación / recall
+SERIE_1 = "#2a78d6"   # azul  — train / precisión / métrica 1
+SERIE_2 = "#eb6834"   # naranja — validación / recall / métrica 2
+SERIE_3 = "#2ca02c"   # verde — test / éxito
+SERIE_4 = "#8442b3"   # violeta / secundaria
+SERIE_5 = "#d62728"   # rojo / alerta / pérdida
 TINTA = "#0b0b0b"
 TINTA_2 = "#52514e"
 MUTE = "#8a8985"
 GRILLA = "#e6e5e1"
 SUPERFICIE = "#fcfcfb"
 
+PALETA_LINEAS = [
+    "#2a78d6", "#eb6834", "#2ca02c", "#8442b3",
+    "#d62728", "#028090", "#e07a5f", "#3d405b",
+]
+
 RESULTS_DIR = Path("results/runs")
 FIGURES_DIR = Path("results/figures/training")
 
 
-def aplicar_estilo() -> None:
-    """Estilo común: marcas finas, grilla hairline sólida y ejes recesivos."""
+def aplicar_estilo(fondo: str = "superficie") -> None:
+    """Configura el estilo común sobrio y estándar para todas las figuras de entrenamiento."""
+    color_fondo = SUPERFICIE if fondo == "superficie" else "white"
+    color_grilla = GRILLA if fondo == "superficie" else "#e0e0e0"
     plt.rcParams.update({
-        "figure.facecolor": SUPERFICIE,
-        "axes.facecolor": SUPERFICIE,
-        "savefig.facecolor": SUPERFICIE,
-        "axes.edgecolor": GRILLA,
-        "axes.labelcolor": TINTA_2,
-        "axes.titlecolor": TINTA,
-        "axes.linewidth": 0.8,
+        "figure.facecolor": color_fondo,
+        "axes.facecolor": color_fondo,
+        "savefig.facecolor": color_fondo,
+        "axes.edgecolor": GRILLA if fondo == "superficie" else "#333333",
+        "axes.labelcolor": TINTA_2 if fondo == "superficie" else "#111111",
+        "axes.titlecolor": TINTA if fondo == "superficie" else "#111111",
+        "axes.linewidth": 0.8 if fondo == "superficie" else 1.0,
         "axes.grid": True,
         "axes.axisbelow": True,
-        "grid.color": GRILLA,
+        "grid.color": color_grilla,
         "grid.linewidth": 0.8,
-        "grid.linestyle": "-",
-        "xtick.color": TINTA_2,
-        "ytick.color": TINTA_2,
+        "grid.linestyle": "-" if fondo == "superficie" else "--",
+        "xtick.color": TINTA_2 if fondo == "superficie" else "#111111",
+        "ytick.color": TINTA_2 if fondo == "superficie" else "#111111",
         "xtick.labelsize": 10,
         "ytick.labelsize": 10,
         "axes.labelsize": 11,
         "axes.titlesize": 13,
-        "legend.frameon": False,
+        "legend.frameon": fondo != "superficie",
+        "legend.framealpha": 0.9,
+        "legend.edgecolor": "#cccccc",
         "legend.fontsize": 10,
         "font.size": 11,
         "figure.dpi": 150,
@@ -77,12 +89,23 @@ def aplicar_estilo() -> None:
     })
 
 
-def _limpiar_ejes(ax) -> None:
-    """Quita los bordes superior y derecho y deja la grilla solo en el eje Y."""
+def aplicar_estilo_cientifico() -> None:
+    """Alias de compatibilidad para figuras con fondo blanco puro y estilo científico."""
+    aplicar_estilo(fondo="white")
+
+
+def limpiar_ejes(ax, solo_y: bool = True) -> None:
+    """Quita los bordes superior y derecho y ajusta la grilla."""
     for lado in ("top", "right"):
         ax.spines[lado].set_visible(False)
-    ax.grid(axis="y")
-    ax.grid(axis="x", visible=False)
+    if solo_y:
+        ax.grid(axis="y", visible=True)
+        ax.grid(axis="x", visible=False)
+
+
+def _limpiar_ejes(ax) -> None:
+    """Alias de compatibilidad para código interno."""
+    limpiar_ejes(ax, solo_y=True)
 
 
 def cargar_resumen(run_dir: Path) -> dict:

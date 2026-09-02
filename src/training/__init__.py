@@ -1,12 +1,34 @@
-"""Módulo de entrenamiento, evaluación y métricas del sistema de predicción de BTR."""
+"""Módulo de entrenamiento, evaluación, ablaciones y métricas del sistema de predicción de BTR."""
 
+from src.training.config import apply_config, available_configs, build_run_name, load_config, resolve_config_path
 from src.training.dataset import SupermarketDataset, build_dataloaders
 from src.training.metrics import (
     binary_cross_entropy,
+    compute_extended_metrics,
     compute_metrics,
     format_metrics,
     lift_over_baseline,
     sigmoid,
+)
+from src.training.plots import (
+    GRILLA,
+    MUTE,
+    PALETA_LINEAS,
+    SERIE_1,
+    SERIE_2,
+    SERIE_3,
+    SERIE_4,
+    SERIE_5,
+    SUPERFICIE,
+    TINTA,
+    TINTA_2,
+    aplicar_estilo,
+    aplicar_estilo_cientifico,
+    limpiar_ejes,
+    plot_learning_curves,
+    plot_model_comparison,
+    plot_pr_roc_curves,
+    plot_top_n_curve,
 )
 from src.training.trainer import Trainer, TrainerConfig, get_device, set_seed
 
@@ -14,6 +36,7 @@ __all__ = [
     "SupermarketDataset",
     "build_dataloaders",
     "compute_metrics",
+    "compute_extended_metrics",
     "binary_cross_entropy",
     "format_metrics",
     "lift_over_baseline",
@@ -22,4 +45,27 @@ __all__ = [
     "TrainerConfig",
     "get_device",
     "set_seed",
+    "load_config",
+    "apply_config",
+    "build_run_name",
+    "resolve_config_path",
+    "available_configs",
+    "aplicar_estilo",
+    "aplicar_estilo_cientifico",
+    "limpiar_ejes",
+    "plot_learning_curves",
+    "plot_pr_roc_curves",
+    "plot_model_comparison",
+    "plot_top_n_curve",
+    "SERIE_1",
+    "SERIE_2",
+    "SERIE_3",
+    "SERIE_4",
+    "SERIE_5",
+    "TINTA",
+    "TINTA_2",
+    "MUTE",
+    "GRILLA",
+    "SUPERFICIE",
+    "PALETA_LINEAS",
 ]
