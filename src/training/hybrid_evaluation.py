@@ -93,9 +93,11 @@ def run_single_seed(
     restore_best: bool,
     fusion_mode: str,
     fusion_heads: int,
-    tabular_mlp: bool = False,
-    d_tab: int = 32,
-    device: Optional[str] = None,
+    use_tabular_mlp: bool,
+    d_tab: int,
+    tab_hidden_dims: Optional[List[int]],
+    head_hidden_dims: Optional[List[int]],
+    device: Optional[str],
 ) -> Dict[str, Any]:
     """Entrena una corrida puntual del modelo híbrido con una semilla específica."""
     set_seed(seed)
@@ -115,16 +117,18 @@ def run_single_seed(
     )
     text_encoder = TextTransformerEncoder(text_config)
 
-    # 2. Rama Tabular (Con o sin MLP intermedio)
+    # 2. Rama Tabular (Con o sin MLP según configuración)
     tab_config = TabularEncoderConfig(
         num_numeric=artefactos["num_numeric"],
         num_direct=artefactos["num_direct"],
         embedding_cardinalities=artefactos["embedding_cardinalities"],
         embedding_dim=embedding_dim,
         onehot_cardinalities=artefactos["onehot_cardinalities"],
-        use_mlp=tabular_mlp,
+        use_mlp=use_tabular_mlp,
+        hidden_dims=tab_hidden_dims if tab_hidden_dims is not None else [64],
         d_tab=d_tab,
         dropout=dropout,
+        activation="gelu",
     )
     tabular_encoder = TabularEncoder(tab_config)
 
@@ -134,7 +138,7 @@ def run_single_seed(
         d_text=text_encoder.config.d_model,
         d_tab=tabular_encoder.output_dim,
         n_heads=fusion_heads,
-        hidden_dims=[64],
+        hidden_dims=head_hidden_dims if head_hidden_dims is not None else [64],
         dropout=dropout,
         activation="gelu",
     )
@@ -307,6 +311,12 @@ def main() -> None:
     parser.add_argument("--no_early_stopping", action="store_true", help="Desactiva early stopping y corre todas las épocas sin restaurar.")
     parser.add_argument("--fusion_mode", type=str, default="late", choices=["late", "cross"], help="Estrategia de fusión: late o cross.")
     parser.add_argument("--fusion_heads", type=int, default=1, help="Cabezales de cross-attention.")
+    parser.add_argument("--use_tabular_mlp", action="store_true", help="Activa el MLP en la rama tabular.")
+    parser.add_argument("--d_tab", type=int, default=32, help="Dimensión de salida e_tab del MLP tabular (default: 32).")
+    parser.add_argument("--tab_hidden_dims", nargs="+", type=int, default=[64], help="Capas ocultas del MLP tabular.")
+    parser.add_argument("--head_hidden_dims", nargs="*", type=int, default=[64], help="Capas ocultas del clasificador final (ej: 64, 32, 64 32, o vacío para regresión lineal).")
+    parser.add_argument("--text_fields", nargs="+", type=str, default=None,
+                        help="Campos que componen la secuencia de texto (default: title_clean description ingredients).")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--plots_only", action="store_true", help="Solo regenera las figuras desde los CSVs.")
     args = parser.parse_args()
@@ -339,14 +349,17 @@ def main() -> None:
     print("=" * 88)
     print(f"🔬 EVALUACIÓN DEL MODELO HÍBRIDO [{'CROSS-ATTENTION' if args.fusion_mode == 'cross' else 'LATE FUSION'}]")
     print(f"   • Texto: d_model={args.d_model}, d_ff={args.d_ff}, L={args.num_layers}, H={args.n_heads}, {args.pos_encoding}")
-    print(f"   • Tabular: embedding_dim={args.embedding_dim or 'auto'}, tabular_mlp={args.tabular_mlp} (d_tab={args.d_tab if args.tabular_mlp else 'directo'})")
-    print(f"   • Fusión: mode={args.fusion_mode} (heads={args.fusion_heads}) -> ClassifierHead(64 -> 1)")
+    print(f"   • Campos de Texto: {args.text_fields or ['title_clean', 'description', 'ingredients']}")
+    print(f"   • Tabular: embedding_dim={args.embedding_dim or 'auto'}, MLP={'Activado (d_tab=' + str(args.d_tab) + ')' if args.use_tabular_mlp else 'Desactivado (directo)'}")
+    print(f"   • Clasificador Final: hidden_dims={args.head_hidden_dims if args.head_hidden_dims else 'Directo (sin capas ocultas)'}")
+    print(f"   • Fusión: mode={args.fusion_mode} (heads={args.fusion_heads})")
     print(f"   • Early Stopping: {'Desactivado (corre todas las épocas)' if args.no_early_stopping else f'Activado (patience={args.patience})'}")
     print(f"   • Semillas: {args.seeds}")
     print("=" * 88)
 
     loaders, artefactos = build_dataloaders(
         batch_size=args.batch_size,
+        text_fields=args.text_fields,
         use_text=True,
         use_tabular=True,
         seed=42,
@@ -376,8 +389,10 @@ def main() -> None:
             restore_best=restore_best,
             fusion_mode=args.fusion_mode,
             fusion_heads=args.fusion_heads,
-            tabular_mlp=args.tabular_mlp,
+            use_tabular_mlp=args.use_tabular_mlp,
             d_tab=args.d_tab,
+            tab_hidden_dims=args.tab_hidden_dims,
+            head_hidden_dims=args.head_hidden_dims,
             device=args.device,
         )
         registros.append(res)
