@@ -50,8 +50,8 @@ ya no es el mismo para todos.
 
 Bajo ese supuesto, se propone representar al usuario mediante un conjunto de **features
 agregadas** que resumen su comportamiento histórico en la plataforma. Estas variables se calculan
-como estadísticos sobre el historial de compras del usuario, previo al momento de la impresión
-que se está evaluando.
+como estadísticos sobre el historial de interacciones del usuario, previo al momento de la
+impresión que se está evaluando.
 
 ### 2.1. Criterio de Selección: Alineación con los Atributos del Producto
 
@@ -72,6 +72,7 @@ un atributo del producto**, de modo que el modelo pueda calcular una comparació
 | `preferred_storage_type` | Tipo de almacenamiento más frecuente: hábito de compra (fresco vs. despensa) | `storage_type` |
 | `purchase_frequency` | Compras por semana: nivel de actividad en la plataforma | - |
 | `days_since_last_purchase` | Días desde la última compra: recencia de la actividad | - |
+| `cart_to_purchase_rate` | Proporción de carritos que terminan en compra: eficiencia de conversión | - |
 
 Todas las contrapartes son variables que **ya existen en el `TabularPreprocessor` del producto**,
 con sus vocabularios y sus escalas ya ajustados sobre el split de entrenamiento. No se introducen
@@ -108,7 +109,7 @@ La comparación toma tres formas distintas según el tipo de eje:
 
 ### 2.3. Preferencia vs. Propensión: Dos Roles Distintos
 
-Las nueve features no cumplen la misma función, y la distinción es la que ordena toda la
+Las diez features no cumplen la misma función, y la distinción es la que ordena toda la
 integración arquitectónica de la sección 3.
 
 **Las siete primeras son features de preferencia.** Tienen contraparte en el producto, por lo que
@@ -116,13 +117,26 @@ integración arquitectónica de la sección 3.
 que producen el efecto que pide la consigna — que el BTR deje de ser una propiedad del producto y
 pase a ser una propiedad del par (usuario, producto).
 
-**Las dos últimas son features de propensión.** No tienen contraparte, y esa ausencia no es un
-descuido sino una consecuencia de lo que miden: `purchase_frequency` y `days_since_last_purchase`
-describen *cuánto* compra el usuario, no *qué* compra. Su efecto es un desplazamiento del nivel
-base de probabilidad: suben o bajan el score de **todos** los productos por igual, sin alterar el
-orden entre ellos. Un usuario que hace tres compras por semana tiene más probabilidad de comprar
-cualquier cosa que uno inactivo hace dos meses, pero eso no dice nada sobre cuál de los productos
-del catálogo le conviene mostrarle.
+**Las tres últimas son features de propensión.** No tienen contraparte, y esa ausencia no es un
+descuido sino una consecuencia de lo que miden: `purchase_frequency`, `days_since_last_purchase` y
+`cart_to_purchase_rate` describen *cuánto* compra el usuario, no *qué* compra. Su efecto es un
+desplazamiento del nivel base de probabilidad: suben o bajan el score de **todos** los productos
+por igual, sin alterar el orden entre ellos. Un usuario que hace tres compras por semana tiene más
+probabilidad de comprar cualquier cosa que uno inactivo hace dos meses, pero eso no dice nada
+sobre cuál de los productos del catálogo le conviene mostrarle.
+
+`cart_to_purchase_rate` es la que mide el tramo final del embudo: de todo lo que el usuario mandó
+al carrito, qué fracción terminó comprando. Distingue a quien decide rápido de quien acumula
+carritos y abandona, y esa distinción es un factor multiplicativo sobre cualquier producto que se
+le muestre, no una preferencia por alguno en particular.
+
+> [!NOTE]
+> **Sobre el uso de `cart`.** El campo se descarta en el sistema actual por *leakage* de embudo
+> (`feature_planning.md`): para la impresión que se está prediciendo, el add-to-cart es posterior
+> a la impresión y anterior a la compra. Esa objeción es sobre la **fila**, no sobre la columna: el
+> `cart` de interacciones *anteriores* del mismo usuario es un hecho ya consumado, igual que el
+> `bought` sobre el que se calculan las siete features de preferencia — que es literalmente el
+> target y resulta admisible por el mismo corte temporal.
 
 Se conservan porque el BTR es una probabilidad y calibrar su nivel por usuario es parte del
 problema, no un agregado. Pero el rol diferenciado tiene una consecuencia concreta sobre dónde
@@ -138,7 +152,9 @@ Las features reciben el mismo tratamiento que sus contrapartes en el `TabularEnc
   z-score ajustada exclusivamente sobre el split de entrenamiento, con `log1p` previo en
   `avg_price_per_oz` por su asimetría, replicando el criterio ya aplicado a `price_per_oz`.
 * **Propensión** (`purchase_frequency`, `days_since_last_purchase`): `log1p` seguido de z-score,
-  por tratarse de distribuciones de cola larga.
+  por tratarse de distribuciones de cola larga. `cart_to_purchase_rate` queda exceptuada: es un
+  cociente acotado en $[0, 1]$ e ingresa sin transformación, con imputación en la media del split
+  de entrenamiento cuando el usuario no registra carritos previos y el cociente es indefinido.
 * **Vectores de proporciones** (`category_shares`, `brand_shares`, `allergen_avoidance`): ya
   acotados en $[0, 1]$ y sumando 1 por construcción, ingresan sin transformación adicional. Sus
   dimensiones quedan fijadas por los vocabularios existentes del preprocesador (12 categorías,
@@ -189,7 +205,7 @@ de texto, donde las features tabulares del producto condicionan qué tokens reci
 
 Se introduce un `UserEncoder` (MLP) como tercera rama. Siguiendo la distinción de la sección 2.3,
 **el encoder emite dos vectores en lugar de uno**: `e_pref`, con los siete ejes que tienen
-contraparte en el producto, y `e_prop`, con las dos features de actividad. Cada uno se inyecta en
+contraparte en el producto, y `e_prop`, con las tres features de actividad. Cada uno se inyecta en
 un punto distinto de la arquitectura.
 
 ```
@@ -216,11 +232,11 @@ de compra. En cambio sí desplaza el nivel base de probabilidad, y ese efecto se
 correctamente en la concatenación del Paso 6. Inyectarla en el Query solo agregaría parámetros
 sin señal aprovechable.
 
-**Dimensionamiento y necesidad del MLP.** Las nueve features ocupan **43 dimensiones crudas**
-(12 categorías + 15 marcas + 8 alérgenos + 3 storage + 3 continuas + 2 de propensión). En la
+**Dimensionamiento y necesidad del MLP.** Las diez features ocupan **44 dimensiones crudas**
+(12 categorías + 15 marcas + 8 alérgenos + 3 storage + 3 continuas + 3 de propensión). En la
 configuración ganadora del Ejercicio 2 (`d_text = 8`, `d_tab = 66`), un `e_user` sin proyectar
 sería más de cinco veces mayor que `e_text` y dominaría el vector fusionado, que pasaría de 74 a
-117 dimensiones. Por eso el `UserEncoder` **sí** usa MLP proyector, a diferencia del
+118 dimensiones. Por eso el `UserEncoder` **sí** usa MLP proyector, a diferencia del
 `TabularEncoder` ganador que corre con `use_mlp=False`: la decisión no es estética sino de
 balance entre modalidades.
 
@@ -318,7 +334,7 @@ RAMA 3 — Historial del usuario (NUEVO Transformer, independiente):
        precomputado (ej. categoría +               secuencia de compras
        precio + marca proyectados)
 
-  [purchase_frequency, days_since_last_purchase]  →  MLP  →  e_prop
+  [purchase_frequency, days_since_last_purchase, cart_to_purchase_rate]  →  MLP  →  e_prop
        ↑ la propensión no requiere Transformer: se mantiene igual que en la sección 3
 
 FUSIÓN (igual que en la propuesta de la sección 3):
